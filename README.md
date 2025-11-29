@@ -71,6 +71,7 @@ All packages are installed without version pinning to use the latest stable vers
 | Pillow | 12.0.0 | Image handling |
 | djangorestframework | 3.16.1 | REST API framework |
 | django-cors-headers | 4.9.0 | CORS support |
+| python-decouple | 3.8 | Environment variable management |
 | pytest | 9.0.1 | Testing framework |
 
 ## 🏗️ Project Structure
@@ -84,18 +85,28 @@ Student-Moving-Services-Marketplace/
 │   ├── apps.py                     # App configuration
 │   └── tests.py                    # App-specific tests
 ├── student_moving_marketplace/     # Django project settings
-│   ├── settings.py                 # Project configuration
+│   ├── settings.py                 # Project configuration (MySQL configured)
 │   ├── urls.py                     # URL routing
 │   ├── wsgi.py                     # WSGI configuration
 │   └── asgi.py                     # ASGI configuration
-├── tests/                          # Environment verification tests
-│   └── test_environment_setup.py   # 38 comprehensive tests
+├── tests/                          # Test suite
+│   ├── test_environment_setup.py   # Environment verification tests
+│   └── test_database_config.py     # Database configuration tests (38 tests)
 ├── docs/                           # Documentation
-│   ├── QUICKSTART.md              # Quick start guide
-│   └── SETUP_SUMMARY.md           # Setup summary
+│   ├── QUICKSTART.md               # Quick start guide
+│   ├── SETUP_SUMMARY.md            # Setup summary
+│   ├── DATABASE_CONFIG_SUMMARY.md  # Database configuration details
+│   └── database_setup.md           # Database setup guide
+├── scripts/                        # Database setup scripts
+│   ├── setup_database.sh           # Automated database setup
+│   ├── create_database.sql         # Database creation script
+│   ├── grant_test_permissions.sql  # Test permissions script
+│   └── setup_db.sql                # Complete database setup SQL
+├── media/                          # User-uploaded media files
 ├── manage.py                       # Django management script
 ├── requirements.txt                # Project dependencies
 ├── pyproject.toml                  # pytest configuration
+├── .env.example                    # Example environment variables
 ├── .gitignore                      # Git ignore rules
 ├── LICENSE                         # Project license
 └── README.md                       # This file
@@ -108,13 +119,21 @@ This project follows **Test-Driven Development (TDD)** principles.
 ### Run All Tests
 
 ```bash
+# Run environment setup tests
 python -m pytest tests/test_environment_setup.py -v
+
+# Run database configuration tests
+python manage.py test tests.test_database_config -v
+
+# Run all tests
+python -m pytest -v
 ```
 
 ### Test Coverage
 
-The test suite includes 38 comprehensive tests covering:
+The test suite includes **76 comprehensive tests** covering:
 
+#### Environment Setup Tests (38 tests)
 - ✅ Django installation and version verification
 - ✅ Required package installation
 - ✅ Django project structure validation
@@ -122,7 +141,15 @@ The test suite includes 38 comprehensive tests covering:
 - ✅ Requirements.txt validation
 - ✅ Django functionality checks
 
-**Current Status**: 38/38 tests passing ✅
+#### Database Configuration Tests (38 tests)
+- ✅ Database connectivity (10 tests)
+- ✅ Database operations - CRUD (7 tests)
+- ✅ Media file configuration (7 tests)
+- ✅ Installed apps verification (9 tests)
+- ✅ Connection pooling (2 tests)
+- ✅ Security configuration (3 tests)
+
+**Current Status**: 76/76 tests passing ✅
 
 ## 🚦 Quick Start
 
@@ -163,6 +190,17 @@ Detailed documentation is available in the `docs/` directory:
 
 - [**Quick Start Guide**](docs/QUICKSTART.md) - Get started quickly
 - [**Setup Summary**](docs/SETUP_SUMMARY.md) - Detailed setup information
+- [**Database Setup Guide**](docs/database_setup.md) - MySQL database configuration
+- [**Database Config Summary**](docs/DATABASE_CONFIG_SUMMARY.md) - Database configuration details
+
+### Database Setup Scripts
+
+Database setup scripts are available in the `scripts/` directory:
+
+- `setup_database.sh` - Automated database setup script
+- `setup_db.sql` - Complete SQL setup script
+- `create_database.sql` - Database creation script
+- `grant_test_permissions.sql` - Test permissions script
 
 ## 🔧 Configuration
 
@@ -297,21 +335,27 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 1.0.0 (Initial Setup)
+**Current Version**: 1.1.0 (Database Configuration Complete)
 
 - ✅ Environment setup complete
 - ✅ Django project initialized
 - ✅ Core app created
-- ✅ Comprehensive test suite (38 tests)
+- ✅ MySQL database configured
+- ✅ Database connection pooling enabled
+- ✅ Media file handling configured
+- ✅ REST API framework installed
+- ✅ CORS support configured
+- ✅ Comprehensive test suite (76 tests)
 - ✅ Documentation complete
+- ✅ Project structure organized
 - 🚧 Feature development in progress
 
 ## 🎯 Next Steps
 
-1. Configure MySQL database
-2. Define data models for marketplace
-3. Implement user authentication
-4. Create REST API endpoints
+1. ✅ ~~Configure MySQL database~~ (Complete)
+2. Define data models for marketplace (Users, Services, Bookings, etc.)
+3. Implement user authentication and authorization
+4. Create REST API endpoints for marketplace operations
 5. Build frontend interface
 6. Add comprehensive feature tests
 7. Deploy to production
