@@ -8,12 +8,19 @@ This marketplace platform facilitates connections between students requiring mov
 
 ## ✨ Features
 
+### Core Models
+- **Custom User Model** - Extended Django user with student/provider types, phone validation, and profile images
+- **MovingService Model** - Service listings with pricing, ratings, and availability tracking
+- **Booking Model** - Complete booking system with status transitions and validation
+- **Custom Validators** - Phone number and image validation with comprehensive error handling
+
+### Technical Stack
 - **Django 5.2.8** - Latest stable Django framework
 - **REST API** - Built with Django REST Framework
-- **MySQL Support** - Production-ready database integration
-- **Image Handling** - Pillow for image processing
+- **MySQL Support** - Production-ready database integration with UTF-8mb4 charset
+- **Image Handling** - Pillow for image processing with size and format validation
 - **CORS Support** - Cross-Origin Resource Sharing enabled
-- **Test-Driven Development** - 38 comprehensive environment tests
+- **Test-Driven Development** - 165 comprehensive tests with 100% pass rate
 - **Virtual Environment** - Isolated Python environment using pyenv-virtualenv
 
 ## 📋 Prerequisites
@@ -79,19 +86,24 @@ All packages are installed without version pinning to use the latest stable vers
 ```
 Student-Moving-Services-Marketplace/
 ├── core/                           # Core Django app
-│   ├── models.py                   # Database models
+│   ├── models.py                   # Database models (User, MovingService, Booking)
+│   ├── validators.py               # Custom validators (phone, image)
 │   ├── views.py                    # View functions
-│   ├── admin.py                    # Admin interface
+│   ├── admin.py                    # Admin interface configuration
 │   ├── apps.py                     # App configuration
-│   └── tests.py                    # App-specific tests
+│   ├── tests.py                    # App-specific tests
+│   └── migrations/                 # Database migrations
 ├── student_moving_marketplace/     # Django project settings
 │   ├── settings.py                 # Project configuration (MySQL configured)
 │   ├── urls.py                     # URL routing
 │   ├── wsgi.py                     # WSGI configuration
 │   └── asgi.py                     # ASGI configuration
-├── tests/                          # Test suite
-│   ├── test_environment_setup.py   # Environment verification tests
-│   └── test_database_config.py     # Database configuration tests (38 tests)
+├── tests/                          # Test suite (165 tests)
+│   ├── test_environment_setup.py   # Environment verification tests (38 tests)
+│   ├── test_database_config.py     # Database configuration tests (38 tests)
+│   ├── test_user_model.py          # User model tests (51 tests)
+│   ├── test_moving_service_model.py # MovingService model tests (20 tests)
+│   └── test_booking_model.py       # Booking model tests (18 tests)
 ├── docs/                           # Documentation
 │   ├── QUICKSTART.md               # Quick start guide
 │   ├── SETUP_SUMMARY.md            # Setup summary
@@ -105,7 +117,8 @@ Student-Moving-Services-Marketplace/
 ├── media/                          # User-uploaded media files
 ├── manage.py                       # Django management script
 ├── requirements.txt                # Project dependencies
-├── pyproject.toml                  # pytest configuration
+├── pytest.ini                      # Pytest configuration
+├── pyproject.toml                  # Python project configuration
 ├── .env.example                    # Example environment variables
 ├── .gitignore                      # Git ignore rules
 ├── LICENSE                         # Project license
@@ -131,7 +144,7 @@ python -m pytest -v
 
 ### Test Coverage
 
-The test suite includes **76 comprehensive tests** covering:
+The test suite includes **165 comprehensive tests** covering:
 
 #### Environment Setup Tests (38 tests)
 - ✅ Django installation and version verification
@@ -149,7 +162,27 @@ The test suite includes **76 comprehensive tests** covering:
 - ✅ Connection pooling (2 tests)
 - ✅ Security configuration (3 tests)
 
-**Current Status**: 76/76 tests passing ✅
+#### User Model Tests (51 tests)
+- ✅ User creation and validation (15 tests)
+- ✅ Email uniqueness and normalization (8 tests)
+- ✅ Phone number validation (10 tests)
+- ✅ Profile image validation (8 tests)
+- ✅ User type validation (5 tests)
+- ✅ Helper methods and edge cases (5 tests)
+
+#### MovingService Model Tests (20 tests)
+- ✅ Service creation and validation (8 tests)
+- ✅ Provider validation (4 tests)
+- ✅ Price and rating constraints (5 tests)
+- ✅ Field validation (3 tests)
+
+#### Booking Model Tests (18 tests)
+- ✅ Booking creation and validation (6 tests)
+- ✅ Student and provider validation (4 tests)
+- ✅ Status transitions (5 tests)
+- ✅ Location and price validation (3 tests)
+
+**Current Status**: 165/165 tests passing ✅
 
 ## 🚦 Quick Start
 
@@ -201,6 +234,83 @@ Database setup scripts are available in the `scripts/` directory:
 - `setup_db.sql` - Complete SQL setup script
 - `create_database.sql` - Database creation script
 - `grant_test_permissions.sql` - Test permissions script
+
+## 📊 Data Models
+
+The application implements three core models with comprehensive validation:
+
+### User Model
+
+Custom user model extending Django's `AbstractUser`:
+
+**Fields:**
+- `email` - Required, unique email address (case-insensitive)
+- `username` - Standard Django username field
+- `phone_number` - Optional, validated international phone format
+- `university_name` - Educational institution (optional)
+- `user_type` - Required: 'student' or 'provider'
+- `profile_image` - Optional profile picture (max 5MB, jpg/png/webp)
+- `is_verified` - Provider verification status (boolean)
+- `created_at` - Auto-generated timestamp
+- `updated_at` - Auto-updated timestamp
+
+**Validation:**
+- Email uniqueness and normalization to lowercase
+- Phone number format validation (international format, min 10 digits)
+- Profile image size (max 5MB) and format validation
+- User type must be specified
+
+**Methods:**
+- `is_student()` - Check if user is a student
+- `is_provider()` - Check if user is a service provider
+
+### MovingService Model
+
+Service listings created by providers:
+
+**Fields:**
+- `provider` - Foreign key to User (must be provider type)
+- `service_name` - Name of the service (required)
+- `description` - Detailed description (required)
+- `base_price` - Base price in USD (Decimal, must be > 0)
+- `availability_status` - Boolean, default True
+- `rating_average` - Decimal (0.00 to 5.00)
+- `total_reviews` - Positive integer, default 0
+- `created_at` - Auto-generated timestamp
+- `updated_at` - Auto-updated timestamp
+
+**Validation:**
+- Provider must have user_type='provider'
+- Service name and description cannot be empty
+- Base price must be greater than 0
+- Rating average must be between 0 and 5
+- Total reviews cannot be negative
+
+### Booking Model
+
+Booking system for students to book services:
+
+**Fields:**
+- `student` - Foreign key to User (must be student type)
+- `provider` - Foreign key to User (must be provider type)
+- `service` - Foreign key to MovingService
+- `booking_date` - Date and time of scheduled service
+- `pickup_location` - Pickup address (required)
+- `dropoff_location` - Dropoff address (required)
+- `status` - Choice field: 'pending', 'confirmed', 'completed', 'cancelled'
+- `total_price` - Total price in USD (Decimal, must be > 0)
+- `created_at` - Auto-generated timestamp
+- `updated_at` - Auto-updated timestamp
+
+**Validation:**
+- Student must have user_type='student'
+- Provider must have user_type='provider'
+- Pickup and dropoff locations cannot be empty
+- Total price must be greater than 0
+- Status transitions follow business rules:
+  - Cannot go from 'pending' to 'completed' (must confirm first)
+  - Cannot modify 'completed' bookings
+  - Cannot modify 'cancelled' bookings
 
 ## 🔧 Configuration
 
@@ -335,7 +445,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 1.1.0 (Database Configuration Complete)
+**Current Version**: 2.0.0 (Core Models Implementation Complete)
 
 - ✅ Environment setup complete
 - ✅ Django project initialized
@@ -345,20 +455,26 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Media file handling configured
 - ✅ REST API framework installed
 - ✅ CORS support configured
-- ✅ Comprehensive test suite (76 tests)
+- ✅ Custom User model implemented with validation
+- ✅ MovingService model implemented with business logic
+- ✅ Booking model implemented with status transitions
+- ✅ Custom validators for phone and image validation
+- ✅ Comprehensive test suite (165 tests, 100% pass rate)
 - ✅ Documentation complete
 - ✅ Project structure organized
-- 🚧 Feature development in progress
+- 🚧 REST API endpoints in progress
+- 🚧 Frontend interface in progress
 
 ## 🎯 Next Steps
 
 1. ✅ ~~Configure MySQL database~~ (Complete)
-2. Define data models for marketplace (Users, Services, Bookings, etc.)
+2. ✅ ~~Define data models for marketplace~~ (Complete)
 3. Implement user authentication and authorization
 4. Create REST API endpoints for marketplace operations
 5. Build frontend interface
-6. Add comprehensive feature tests
-7. Deploy to production
+6. Add payment integration
+7. Implement review and rating system
+8. Deploy to production
 
 ---
 

@@ -134,7 +134,7 @@ class DatabaseOperationsTestCase(TransactionTestCase):
 
     def setUp(self):
         """Set up test database connection."""
-        from django.contrib.auth.models import User
+        from core.models import User
         self.User = User
 
     def test_create_operation(self):
@@ -142,7 +142,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
         user = self.User.objects.create_user(
             username='testuser',
             email='test@example.com',
-            password='testpass123'
+            password='testpass123',
+            user_type='student'
         )
         self.assertIsNotNone(user.id, "User should have an ID after creation")
         self.assertEqual(user.username, 'testuser')
@@ -153,7 +154,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
         created_user = self.User.objects.create_user(
             username='readuser',
             email='read@example.com',
-            password='testpass123'
+            password='testpass123',
+            user_type='student'
         )
         
         # Read it back
@@ -166,7 +168,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
         user = self.User.objects.create_user(
             username='updateuser',
             email='update@example.com',
-            password='testpass123'
+            password='testpass123',
+            user_type='student'
         )
         
         # Update the user
@@ -182,7 +185,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
         user = self.User.objects.create_user(
             username='deleteuser',
             email='delete@example.com',
-            password='testpass123'
+            password='testpass123',
+            user_type='student'
         )
         user_id = user.id
         
@@ -204,7 +208,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
                 self.User.objects.create_user(
                     username='rollbackuser',
                     email='rollback@example.com',
-                    password='testpass123'
+                    password='testpass123',
+                    user_type='student'
                 )
                 # Force a rollback by raising an exception
                 raise Exception("Intentional rollback")
@@ -225,7 +230,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
             first_name=emoji_username,
             last_name=special_chars,
             email='emoji@example.com',
-            password='testpass123'
+            password='testpass123',
+            user_type='student'
         )
         
         # Retrieve and verify
@@ -238,7 +244,8 @@ class DatabaseOperationsTestCase(TransactionTestCase):
         users = [
             self.User(
                 username=f'bulkuser{i}',
-                email=f'bulk{i}@example.com'
+                email=f'bulk{i}@example.com',
+                user_type='student'
             )
             for i in range(100)
         ]

@@ -151,6 +151,11 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB in bytes
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Custom User Model
+# IMPORTANT: This must be set before running initial migrations
+AUTH_USER_MODEL = 'core.User'
+
+
 # Django REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
