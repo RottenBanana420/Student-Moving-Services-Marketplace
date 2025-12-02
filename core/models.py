@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -1079,3 +1080,195 @@ class FurnitureTransaction(models.Model):
         
         # Mark furniture item as sold
         self.furniture_item.mark_as_sold()
+
+
+# ============================================================================
+# Review Model
+# ============================================================================
+
+class Review(models.Model):
+    """
+    Review model for users to review each other after completed bookings.
+    
+    Fields:
+    - reviewer: Foreign key to User (person giving the review)
+    - reviewee: Foreign key to User (person receiving the review)
+    - booking: Foreign key to Booking (the completed booking being reviewed)
+    - rating: Integer rating from 1 to 5
+    - comment: Text field for written feedback
+    - created_at: Timestamp when review was created
+    """
+    
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='reviews_given',
+        help_text=_('User writing the review')
+    )
+    
+    reviewee = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='reviews_received',
+        help_text=_('User receiving the review')
+    )
+    
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name='reviews',
+        unique=True,
+        help_text=_('Booking being reviewed (one review per booking)')
+    )
+    
+    rating = models.PositiveSmallIntegerField(
+        _('rating'),
+        validators=[
+            MinValueValidator(1, message=_('Rating must be at least 1.')),
+            MaxValueValidator(5, message=_('Rating must be at most 5.'))
+        ],
+        help_text=_('Rating from 1 to 5 stars')
+    )
+    
+    comment = models.TextField(
+        _('comment'),
+        blank=False,
+        help_text=_('Written feedback about the experience')
+    )
+    
+    created_at = models.DateTimeField(
+        _('created at'),
+        auto_now_add=True,
+        help_text=_('Timestamp when the review was created')
+    )
+    
+    class Meta:
+        verbose_name = _('review')
+        verbose_name_plural = _('reviews')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['reviewer']),
+            models.Index(fields=['reviewee']),
+            models.Index(fields=['booking']),
+            models.Index(fields=['rating']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        """Return meaningful string representation."""
+        return f"Review by {self.reviewer.email} for {self.reviewee.email} - {self.rating}★"
+    
+    def clean(self):
+        """
+        Validate model fields.
+        
+        Ensures:
+        - Reviewer and reviewee are different users
+        - Booking status is 'completed'
+        - Reviewer is part of the booking (student or provider)
+        - Reviewee is the other party in the booking
+        - Comment is not empty or whitespace-only
+        
+        Raises:
+            ValidationError: If validation fails
+        """
+        super().clean()
+        
+        # Validate reviewer and reviewee are different
+        if self.reviewer_id and self.reviewee_id and self.reviewer_id == self.reviewee_id:
+            raise ValidationError({
+                'reviewee': _('Reviewer and reviewee cannot be the same user.')
+            })
+        
+        # Validate booking status is completed
+        if self.booking_id and self.booking:
+            if self.booking.status != 'completed':
+                raise ValidationError({
+                    'booking': _('Only completed bookings can be reviewed.')
+                })
+            
+            # Validate reviewer is part of the booking
+            if self.reviewer_id:
+                if self.reviewer_id not in [self.booking.student_id, self.booking.provider_id]:
+                    raise ValidationError({
+                        'reviewer': _('Reviewer must be either the student or provider from the booking.')
+                    })
+            
+            # Validate reviewee is the other party in the booking
+            if self.reviewer_id and self.reviewee_id:
+                # If reviewer is student, reviewee must be provider
+                if self.reviewer_id == self.booking.student_id:
+                    if self.reviewee_id != self.booking.provider_id:
+                        raise ValidationError({
+                            'reviewee': _('Reviewee must be the provider from the booking.')
+                        })
+                # If reviewer is provider, reviewee must be student
+                elif self.reviewer_id == self.booking.provider_id:
+                    if self.reviewee_id != self.booking.student_id:
+                        raise ValidationError({
+                            'reviewee': _('Reviewee must be the student from the booking.')
+                        })
+        
+        # Validate comment is not empty or whitespace-only
+        if not self.comment or not self.comment.strip():
+            raise ValidationError({
+                'comment': _('Comment cannot be empty.')
+            })
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to ensure validation.
+        
+        Note: We don't call full_clean() here to allow database-level
+        unique constraints to raise IntegrityError as expected.
+        Validation should be done explicitly before calling save().
+        
+        Args:
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        """
+        # Validate fields manually (excluding unique constraints)
+        # This ensures business logic validation while allowing DB constraints
+        if not self.pk:  # Only validate on creation
+            # Validate reviewer and reviewee are different
+            if self.reviewer_id and self.reviewee_id and self.reviewer_id == self.reviewee_id:
+                raise ValidationError({
+                    'reviewee': _('Reviewer and reviewee cannot be the same user.')
+                })
+            
+            # Validate booking status is completed
+            if self.booking_id and self.booking:
+                if self.booking.status != 'completed':
+                    raise ValidationError({
+                        'booking': _('Only completed bookings can be reviewed.')
+                    })
+                
+                # Validate reviewer is part of the booking
+                if self.reviewer_id:
+                    if self.reviewer_id not in [self.booking.student_id, self.booking.provider_id]:
+                        raise ValidationError({
+                            'reviewer': _('Reviewer must be either the student or provider from the booking.')
+                        })
+                
+                # Validate reviewee is the other party in the booking
+                if self.reviewer_id and self.reviewee_id:
+                    # If reviewer is student, reviewee must be provider
+                    if self.reviewer_id == self.booking.student_id:
+                        if self.reviewee_id != self.booking.provider_id:
+                            raise ValidationError({
+                                'reviewee': _('Reviewee must be the provider from the booking.')
+                            })
+                    # If reviewer is provider, reviewee must be student
+                    elif self.reviewer_id == self.booking.provider_id:
+                        if self.reviewee_id != self.booking.student_id:
+                            raise ValidationError({
+                                'reviewee': _('Reviewee must be the student from the booking.')
+                            })
+            
+            # Validate comment is not empty or whitespace-only
+            if not self.comment or not self.comment.strip():
+                raise ValidationError({
+                    'comment': _('Comment cannot be empty.')
+                })
+        
+        super().save(*args, **kwargs)

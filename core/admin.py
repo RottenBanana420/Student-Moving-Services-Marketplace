@@ -265,3 +265,59 @@ class FurnitureTransactionAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+
+# ============================================================================
+# Review Admin
+# ============================================================================
+
+from .models import Review
+
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    """Admin interface for Review model."""
+    
+    list_display = [
+        'id',
+        'reviewer',
+        'reviewee',
+        'booking',
+        'rating',
+        'created_at',
+    ]
+    
+    list_filter = [
+        'rating',
+        'created_at',
+    ]
+    
+    search_fields = [
+        'reviewer__email',
+        'reviewer__username',
+        'reviewee__email',
+        'reviewee__username',
+        'comment',
+    ]
+    
+    readonly_fields = ['created_at']
+    
+    ordering = ['-created_at']
+    
+    date_hierarchy = 'created_at'
+    
+    list_per_page = 25
+    
+    fieldsets = (
+        (None, {
+            'fields': ('reviewer', 'reviewee', 'booking')
+        }),
+        (_('Review Content'), {
+            'fields': ('rating', 'comment')
+        }),
+        (_('Timestamps'), {
+            'fields': ('created_at',),
+            'classes': ('collapse',),
+        }),
+    )
+
