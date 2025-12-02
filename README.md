@@ -12,15 +12,17 @@ This marketplace platform facilitates connections between students requiring mov
 - **Custom User Model** - Extended Django user with student/provider types, phone validation, and profile images
 - **MovingService Model** - Service listings with pricing, ratings, and availability tracking
 - **Booking Model** - Complete booking system with status transitions and validation
+- **Review Model** - Rating and review system for services
+- **Furniture Marketplace** - Buy/sell furniture with transaction handling and escrow support
 - **Custom Validators** - Phone number and image validation with comprehensive error handling
 
 ### Technical Stack
 - **Django 5.2.8** - Latest stable Django framework
-- **REST API** - Built with Django REST Framework
+- **REST API** - Built with Django REST Framework (DRF)
 - **MySQL Support** - Production-ready database integration with UTF-8mb4 charset
 - **Image Handling** - Pillow for image processing with size and format validation
-- **CORS Support** - Cross-Origin Resource Sharing enabled
-- **Test-Driven Development** - 165 comprehensive tests with 100% pass rate
+- **CORS Support** - Cross-Origin Resource Sharing enabled for frontend integration
+- **Test-Driven Development** - Comprehensive test suite using `pytest` and `pytest-django`
 - **Virtual Environment** - Isolated Python environment using pyenv-virtualenv
 
 ## 📋 Prerequisites
@@ -86,7 +88,7 @@ All packages are installed without version pinning to use the latest stable vers
 ```
 Student-Moving-Services-Marketplace/
 ├── core/                           # Core Django app
-│   ├── models.py                   # Database models (User, MovingService, Booking)
+│   ├── models.py                   # Database models (User, Service, Booking, Review, Furniture)
 │   ├── validators.py               # Custom validators (phone, image)
 │   ├── views.py                    # View functions
 │   ├── admin.py                    # Admin interface configuration
@@ -94,26 +96,27 @@ Student-Moving-Services-Marketplace/
 │   ├── tests.py                    # App-specific tests
 │   └── migrations/                 # Database migrations
 ├── student_moving_marketplace/     # Django project settings
-│   ├── settings.py                 # Project configuration (MySQL configured)
+│   ├── settings.py                 # Project configuration (MySQL, DRF, CORS)
 │   ├── urls.py                     # URL routing
 │   ├── wsgi.py                     # WSGI configuration
 │   └── asgi.py                     # ASGI configuration
-├── tests/                          # Test suite (165 tests)
-│   ├── test_environment_setup.py   # Environment verification tests (38 tests)
-│   ├── test_database_config.py     # Database configuration tests (38 tests)
-│   ├── test_user_model.py          # User model tests (51 tests)
-│   ├── test_moving_service_model.py # MovingService model tests (20 tests)
-│   └── test_booking_model.py       # Booking model tests (18 tests)
+├── tests/                          # Test suite
+│   ├── test_environment_setup.py   # Environment verification tests
+│   ├── test_database_config.py     # Database configuration tests
+│   ├── test_user_model.py          # User model tests
+│   ├── test_moving_service_model.py # MovingService model tests
+│   ├── test_booking_model.py       # Booking model tests
+│   ├── test_review_model.py        # Review model tests
+│   ├── test_furniture_models.py    # Furniture marketplace tests
+│   └── test_integration_setup.py   # Integration tests
 ├── docs/                           # Documentation
-│   ├── QUICKSTART.md               # Quick start guide
-│   ├── SETUP_SUMMARY.md            # Setup summary
-│   ├── DATABASE_CONFIG_SUMMARY.md  # Database configuration details
 │   └── database_setup.md           # Database setup guide
 ├── scripts/                        # Database setup scripts
 │   ├── setup_database.sh           # Automated database setup
 │   ├── create_database.sql         # Database creation script
 │   ├── grant_test_permissions.sql  # Test permissions script
-│   └── setup_db.sql                # Complete database setup SQL
+│   ├── setup_db.sql                # Complete database setup SQL
+│   └── populate_db.py              # Script to populate database with dummy data
 ├── media/                          # User-uploaded media files
 ├── manage.py                       # Django management script
 ├── requirements.txt                # Project dependencies
@@ -132,57 +135,38 @@ This project follows **Test-Driven Development (TDD)** principles.
 ### Run All Tests
 
 ```bash
-# Run environment setup tests
-python -m pytest tests/test_environment_setup.py -v
-
-# Run database configuration tests
-python manage.py test tests.test_database_config -v
-
-# Run all tests
+# Run all tests using pytest
 python -m pytest -v
+
+# Run specific test file
+python -m pytest tests/test_user_model.py -v
 ```
 
 ### Test Coverage
 
-The test suite includes **165 comprehensive tests** covering:
+The test suite includes comprehensive tests covering:
 
-#### Environment Setup Tests (38 tests)
-- ✅ Django installation and version verification
-- ✅ Required package installation
-- ✅ Django project structure validation
-- ✅ Virtual environment isolation
-- ✅ Requirements.txt validation
-- ✅ Django functionality checks
+#### Environment & Config
+- ✅ Environment verification
+- ✅ Database configuration
+- ✅ Integration setup (DRF, CORS, DB Isolation)
 
-#### Database Configuration Tests (38 tests)
-- ✅ Database connectivity (10 tests)
-- ✅ Database operations - CRUD (7 tests)
-- ✅ Media file configuration (7 tests)
-- ✅ Installed apps verification (9 tests)
-- ✅ Connection pooling (2 tests)
-- ✅ Security configuration (3 tests)
+#### Core Models
+- ✅ User model (Validation, Types, Profiles)
+- ✅ MovingService model (Pricing, Ratings)
+- ✅ Booking model (Status transitions, Validation)
+- ✅ Review model (Ratings, Comments)
+- ✅ Furniture models (Items, Images, Transactions)
 
-#### User Model Tests (51 tests)
-- ✅ User creation and validation (15 tests)
-- ✅ Email uniqueness and normalization (8 tests)
-- ✅ Phone number validation (10 tests)
-- ✅ Profile image validation (8 tests)
-- ✅ User type validation (5 tests)
-- ✅ Helper methods and edge cases (5 tests)
+#### Integration Tests
+- ✅ REST Framework Configuration (Auth, Permissions, Pagination)
+- ✅ CORS Headers (Middleware, Allowed Origins)
+- ✅ Database Isolation (Test vs Dev DB)
+- ✅ Model Imports & Circular Dependencies
+- ✅ Migration Integrity
+- ✅ API Response Formatting
 
-#### MovingService Model Tests (20 tests)
-- ✅ Service creation and validation (8 tests)
-- ✅ Provider validation (4 tests)
-- ✅ Price and rating constraints (5 tests)
-- ✅ Field validation (3 tests)
-
-#### Booking Model Tests (18 tests)
-- ✅ Booking creation and validation (6 tests)
-- ✅ Student and provider validation (4 tests)
-- ✅ Status transitions (5 tests)
-- ✅ Location and price validation (3 tests)
-
-**Current Status**: 165/165 tests passing ✅
+**Current Status**: All tests passing ✅
 
 ## 🚦 Quick Start
 
@@ -213,6 +197,12 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
+### Populate Database (Optional)
+
+```bash
+python scripts/populate_db.py
+```
+
 ### Access Admin Interface
 
 Navigate to `http://127.0.0.1:8000/admin/` and log in with your superuser credentials.
@@ -221,10 +211,7 @@ Navigate to `http://127.0.0.1:8000/admin/` and log in with your superuser creden
 
 Detailed documentation is available in the `docs/` directory:
 
-- [**Quick Start Guide**](docs/QUICKSTART.md) - Get started quickly
-- [**Setup Summary**](docs/SETUP_SUMMARY.md) - Detailed setup information
 - [**Database Setup Guide**](docs/database_setup.md) - MySQL database configuration
-- [**Database Config Summary**](docs/DATABASE_CONFIG_SUMMARY.md) - Database configuration details
 
 ### Database Setup Scripts
 
@@ -310,7 +297,35 @@ Booking system for students to book services:
 - Status transitions follow business rules:
   - Cannot go from 'pending' to 'completed' (must confirm first)
   - Cannot modify 'completed' bookings
-  - Cannot modify 'cancelled' bookings
+### Review Model
+
+Feedback system for completed bookings:
+
+**Fields:**
+- `booking` - One-to-one relationship with Booking
+- `reviewer` - User who wrote the review
+- `reviewee` - User being reviewed
+- `rating` - Integer 1-5
+- `comment` - Text content
+- `created_at` - Timestamp
+
+### Furniture Marketplace Models
+
+Complete system for buying and selling furniture:
+
+**FurnitureItem:**
+- `seller` - User selling the item
+- `title`, `description` - Item details
+- `price` - Cost in USD
+- `condition` - New, Like New, Good, Fair, Poor
+- `category` - Sofa, Bed, Table, etc.
+- `is_sold` - Status flag
+
+**FurnitureTransaction:**
+- `item` - Reference to FurnitureItem
+- `buyer`, `seller` - Users involved
+- `sale_price` - Final price
+- `status` - Pending, Completed, Cancelled
 
 ## 🔧 Configuration
 
@@ -445,25 +460,20 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.0.0 (Core Models Implementation Complete)
+**Current Version**: 2.1.0 (Marketplace & API Configuration)
 
 - ✅ Environment setup complete
-- ✅ Django project initialized
-- ✅ Core app created
 - ✅ MySQL database configured
-- ✅ Database connection pooling enabled
-- ✅ Media file handling configured
-- ✅ REST API framework installed
+- ✅ REST API framework installed & configured
 - ✅ CORS support configured
-- ✅ Custom User model implemented with validation
-- ✅ MovingService model implemented with business logic
-- ✅ Booking model implemented with status transitions
-- ✅ Custom validators for phone and image validation
-- ✅ Comprehensive test suite (165 tests, 100% pass rate)
+- ✅ Custom User model implemented
+- ✅ MovingService & Booking models implemented
+- ✅ Review model implemented
+- ✅ Furniture marketplace models implemented
+- ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
-- ✅ Project structure organized
-- 🚧 REST API endpoints in progress
-- 🚧 Frontend interface in progress
+- 🚧 REST API endpoints implementation
+- 🚧 Frontend interface
 
 ## 🎯 Next Steps
 
