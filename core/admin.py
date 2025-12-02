@@ -123,3 +123,145 @@ class UserAdmin(BaseUserAdmin):
             return self.readonly_fields
         return []
 
+
+# ============================================================================
+# Furniture Marketplace Admin
+# ============================================================================
+
+from .models import FurnitureItem, FurnitureImage, FurnitureTransaction
+
+
+class FurnitureImageInline(admin.TabularInline):
+    """Inline admin for furniture images."""
+    model = FurnitureImage
+    extra = 1
+    fields = ['image', 'order', 'uploaded_at']
+    readonly_fields = ['uploaded_at']
+    ordering = ['order']
+
+
+@admin.register(FurnitureItem)
+class FurnitureItemAdmin(admin.ModelAdmin):
+    """Admin interface for FurnitureItem model."""
+    
+    list_display = [
+        'title',
+        'seller',
+        'price',
+        'condition',
+        'category',
+        'is_sold',
+        'created_at',
+    ]
+    
+    list_filter = [
+        'is_sold',
+        'condition',
+        'category',
+        'created_at',
+    ]
+    
+    search_fields = [
+        'title',
+        'description',
+        'seller__email',
+        'seller__username',
+    ]
+    
+    readonly_fields = ['created_at', 'updated_at']
+    
+    ordering = ['-created_at']
+    
+    date_hierarchy = 'created_at'
+    
+    list_per_page = 25
+    
+    inlines = [FurnitureImageInline]
+    
+    fieldsets = (
+        (None, {
+            'fields': ('seller', 'title', 'description')
+        }),
+        (_('Pricing & Details'), {
+            'fields': ('price', 'condition', 'category', 'is_sold')
+        }),
+        (_('Timestamps'), {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+
+
+@admin.register(FurnitureImage)
+class FurnitureImageAdmin(admin.ModelAdmin):
+    """Admin interface for FurnitureImage model."""
+    
+    list_display = [
+        'furniture_item',
+        'order',
+        'uploaded_at',
+    ]
+    
+    list_filter = [
+        'uploaded_at',
+    ]
+    
+    search_fields = [
+        'furniture_item__title',
+    ]
+    
+    readonly_fields = ['uploaded_at']
+    
+    ordering = ['furniture_item', 'order']
+    
+    list_per_page = 50
+
+
+@admin.register(FurnitureTransaction)
+class FurnitureTransactionAdmin(admin.ModelAdmin):
+    """Admin interface for FurnitureTransaction model."""
+    
+    list_display = [
+        'id',
+        'buyer',
+        'seller',
+        'furniture_item',
+        'escrow_status',
+        'transaction_date',
+        'completed_at',
+    ]
+    
+    list_filter = [
+        'escrow_status',
+        'transaction_date',
+        'completed_at',
+    ]
+    
+    search_fields = [
+        'buyer__email',
+        'buyer__username',
+        'seller__email',
+        'seller__username',
+        'furniture_item__title',
+    ]
+    
+    readonly_fields = ['transaction_date', 'created_at', 'updated_at', 'completed_at']
+    
+    ordering = ['-transaction_date']
+    
+    date_hierarchy = 'transaction_date'
+    
+    list_per_page = 25
+    
+    fieldsets = (
+        (None, {
+            'fields': ('buyer', 'seller', 'furniture_item')
+        }),
+        (_('Escrow Status'), {
+            'fields': ('escrow_status', 'completed_at')
+        }),
+        (_('Timestamps'), {
+            'fields': ('transaction_date', 'created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )

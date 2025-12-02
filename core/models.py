@@ -575,3 +575,507 @@ class Booking(models.Model):
         # Run full_clean for validation
         self.full_clean()
         super().save(*args, **kwargs)
+
+
+# ============================================================================
+# Furniture Marketplace Models
+# ============================================================================
+
+def furniture_image_upload_path(instance, filename):
+    """
+    Generate upload path for furniture images.
+    
+    Path format: furniture_images/{item_id}/{filename}
+    If item_id is not yet available (item not saved), uses 'temp' as placeholder.
+    
+    Args:
+        instance: FurnitureImage model instance
+        filename: Original filename
+        
+    Returns:
+        str: Upload path
+    """
+    item_id = instance.furniture_item.id if instance.furniture_item and instance.furniture_item.id else 'temp'
+    return f'furniture_images/{item_id}/{filename}'
+
+
+class FurnitureItem(models.Model):
+    """
+    Furniture item model for marketplace listings.
+    
+    Fields:
+    - seller: Foreign key to User (can be student or provider)
+    - title: Item title
+    - description: Detailed description
+    - price: Item price (must be > 0)
+    - condition: Item condition (new, like_new, good, fair, poor)
+    - category: Item category
+    - is_sold: Whether item has been sold
+    - created_at: Creation timestamp
+    - updated_at: Last update timestamp
+    """
+    
+    CONDITION_CHOICES = [
+        ('new', 'New'),
+        ('like_new', 'Like New'),
+        ('good', 'Good'),
+        ('fair', 'Fair'),
+        ('poor', 'Poor'),
+    ]
+    
+    CATEGORY_CHOICES = [
+        ('furniture', 'Furniture'),
+        ('appliances', 'Appliances'),
+        ('electronics', 'Electronics'),
+        ('books', 'Books'),
+        ('clothing', 'Clothing'),
+        ('other', 'Other'),
+    ]
+    
+    seller = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='furniture_items',
+        help_text=_('User selling this item')
+    )
+    
+    title = models.CharField(
+        _('title'),
+        max_length=200,
+        blank=False,
+        null=False,
+        help_text=_('Title of the furniture item')
+    )
+    
+    description = models.TextField(
+        _('description'),
+        blank=False,
+        null=False,
+        help_text=_('Detailed description of the item')
+    )
+    
+    price = models.DecimalField(
+        _('price'),
+        max_digits=10,
+        decimal_places=2,
+        blank=False,
+        null=False,
+        help_text=_('Price in USD (must be greater than 0)')
+    )
+    
+    condition = models.CharField(
+        _('condition'),
+        max_length=20,
+        choices=CONDITION_CHOICES,
+        blank=False,
+        null=False,
+        help_text=_('Condition of the item')
+    )
+    
+    category = models.CharField(
+        _('category'),
+        max_length=20,
+        choices=CATEGORY_CHOICES,
+        blank=False,
+        null=False,
+        help_text=_('Category of the item')
+    )
+    
+    is_sold = models.BooleanField(
+        _('is sold'),
+        default=False,
+        help_text=_('Whether the item has been sold')
+    )
+    
+    created_at = models.DateTimeField(
+        _('created at'),
+        auto_now_add=True,
+        help_text=_('Timestamp when the item was created')
+    )
+    
+    updated_at = models.DateTimeField(
+        _('updated at'),
+        auto_now=True,
+        help_text=_('Timestamp when the item was last updated')
+    )
+    
+    class Meta:
+        verbose_name = _('furniture item')
+        verbose_name_plural = _('furniture items')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['seller']),
+            models.Index(fields=['is_sold']),
+            models.Index(fields=['category']),
+            models.Index(fields=['condition']),
+        ]
+    
+    def __str__(self):
+        """Return title as string representation."""
+        return self.title
+    
+    def clean(self):
+        """
+        Validate model fields.
+        
+        Ensures:
+        - Title is not empty
+        - Description is not empty
+        - Price is greater than 0
+        - Condition is valid choice
+        - Category is valid choice
+        
+        Raises:
+            ValidationError: If validation fails
+        """
+        super().clean()
+        
+        # Validate title is not empty
+        if not self.title or not self.title.strip():
+            raise ValidationError({
+                'title': _('Title cannot be empty.')
+            })
+        
+        # Validate description is not empty
+        if not self.description or not self.description.strip():
+            raise ValidationError({
+                'description': _('Description cannot be empty.')
+            })
+        
+        # Validate price is positive
+        if self.price is not None and self.price <= 0:
+            raise ValidationError({
+                'price': _('Price must be greater than 0.')
+            })
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to ensure validation.
+        
+        Args:
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        """
+        # Run full_clean for validation
+        self.full_clean()
+        super().save(*args, **kwargs)
+    
+    def mark_as_sold(self):
+        """Mark item as sold and save."""
+        self.is_sold = True
+        self.save()
+    
+    def is_available(self):
+        """
+        Check if item is available for purchase.
+        
+        Returns:
+            bool: True if not sold, False otherwise
+        """
+        return not self.is_sold
+
+
+class FurnitureImage(models.Model):
+    """
+    Image model for furniture items (one-to-many relationship).
+    
+    Fields:
+    - furniture_item: Foreign key to FurnitureItem
+    - image: Image file
+    - order: Display order (for sorting)
+    - uploaded_at: Upload timestamp
+    """
+    
+    furniture_item = models.ForeignKey(
+        FurnitureItem,
+        on_delete=models.CASCADE,
+        related_name='images',
+        help_text=_('Furniture item this image belongs to')
+    )
+    
+    image = models.ImageField(
+        _('image'),
+        upload_to=furniture_image_upload_path,
+        blank=False,
+        null=False,
+        validators=[validate_profile_image],  # Reuse existing validator
+        help_text=_('Image file (max 5MB, formats: jpg, png, webp)')
+    )
+    
+    order = models.PositiveIntegerField(
+        _('order'),
+        default=0,
+        help_text=_('Display order for images')
+    )
+    
+    uploaded_at = models.DateTimeField(
+        _('uploaded at'),
+        auto_now_add=True,
+        help_text=_('Timestamp when the image was uploaded')
+    )
+    
+    class Meta:
+        verbose_name = _('furniture image')
+        verbose_name_plural = _('furniture images')
+        ordering = ['order', 'uploaded_at']
+        indexes = [
+            models.Index(fields=['furniture_item']),
+            models.Index(fields=['order']),
+        ]
+    
+    def __str__(self):
+        """Return meaningful string representation."""
+        return f"Image for {self.furniture_item.title}"
+    
+    def clean(self):
+        """
+        Validate model fields.
+        
+        Ensures:
+        - Image is provided
+        - Furniture item is provided
+        
+        Raises:
+            ValidationError: If validation fails
+        """
+        super().clean()
+        
+        # Image validation is handled by the validator
+        # Just ensure required fields are present
+        if not self.image:
+            raise ValidationError({
+                'image': _('Image is required.')
+            })
+        
+        # Check furniture_item_id instead of furniture_item to avoid RelatedObjectDoesNotExist
+        if not self.furniture_item_id:
+            raise ValidationError({
+                'furniture_item': _('Furniture item is required.')
+            })
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to ensure validation.
+        
+        Args:
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        """
+        # Run full_clean for validation
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class FurnitureTransaction(models.Model):
+    """
+    Transaction model for furniture marketplace with escrow support.
+    
+    Fields:
+    - buyer: Foreign key to User (buyer)
+    - seller: Foreign key to User (seller)
+    - furniture_item: Foreign key to FurnitureItem
+    - escrow_status: Current escrow status (pending, held, released)
+    - transaction_date: Transaction creation timestamp
+    - completed_at: Timestamp when escrow was released
+    - created_at: Creation timestamp
+    - updated_at: Last update timestamp
+    """
+    
+    ESCROW_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('held', 'Held'),
+        ('released', 'Released'),
+    ]
+    
+    # Valid state transitions for escrow
+    VALID_TRANSITIONS = {
+        'pending': ['held'],
+        'held': ['released'],
+        'released': [],  # Terminal state
+    }
+    
+    buyer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='furniture_purchases',
+        help_text=_('User purchasing the item')
+    )
+    
+    seller = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='furniture_sales',
+        help_text=_('User selling the item')
+    )
+    
+    furniture_item = models.ForeignKey(
+        FurnitureItem,
+        on_delete=models.CASCADE,
+        related_name='transactions',
+        help_text=_('Furniture item being transacted')
+    )
+    
+    escrow_status = models.CharField(
+        _('escrow status'),
+        max_length=20,
+        choices=ESCROW_STATUS_CHOICES,
+        default='pending',
+        help_text=_('Current status of escrow')
+    )
+    
+    transaction_date = models.DateTimeField(
+        _('transaction date'),
+        auto_now_add=True,
+        help_text=_('Timestamp when transaction was created')
+    )
+    
+    completed_at = models.DateTimeField(
+        _('completed at'),
+        null=True,
+        blank=True,
+        help_text=_('Timestamp when escrow was released')
+    )
+    
+    created_at = models.DateTimeField(
+        _('created at'),
+        auto_now_add=True,
+        help_text=_('Timestamp when the transaction was created')
+    )
+    
+    updated_at = models.DateTimeField(
+        _('updated at'),
+        auto_now=True,
+        help_text=_('Timestamp when the transaction was last updated')
+    )
+    
+    class Meta:
+        verbose_name = _('furniture transaction')
+        verbose_name_plural = _('furniture transactions')
+        ordering = ['-transaction_date']
+        indexes = [
+            models.Index(fields=['buyer']),
+            models.Index(fields=['seller']),
+            models.Index(fields=['furniture_item']),
+            models.Index(fields=['escrow_status']),
+            models.Index(fields=['transaction_date']),
+        ]
+    
+    def __str__(self):
+        """Return meaningful string representation."""
+        return f"Transaction: {self.buyer.email} ← {self.furniture_item.title} ← {self.seller.email}"
+    
+    def clean(self):
+        """
+        Validate model fields and state transitions.
+        
+        Ensures:
+        - Buyer and seller are different users
+        - Furniture item is not already sold
+        - Seller matches furniture item seller
+        - Escrow status transitions are valid
+        
+        Raises:
+            ValidationError: If validation fails
+        """
+        super().clean()
+        
+        # Validate buyer and seller are different
+        if self.buyer_id and self.seller_id and self.buyer_id == self.seller_id:
+            raise ValidationError({
+                'buyer': _('Buyer and seller cannot be the same user.')
+            })
+        
+        # Validate furniture item is not sold
+        if self.furniture_item_id and self.furniture_item and self.furniture_item.is_sold:
+            raise ValidationError({
+                'furniture_item': _('Cannot create transaction for already-sold item.')
+            })
+        
+        # Validate seller matches furniture item seller
+        if self.seller_id and self.furniture_item_id and self.furniture_item:
+            if self.seller_id != self.furniture_item.seller_id:
+                raise ValidationError({
+                    'seller': _('Transaction seller must match furniture item seller.')
+                })
+        
+        # Validate escrow status transitions (only on update)
+        if self.pk is not None:
+            try:
+                old_instance = FurnitureTransaction.objects.get(pk=self.pk)
+                old_status = old_instance.escrow_status
+                new_status = self.escrow_status
+                
+                # Check if transition is valid
+                if old_status != new_status:
+                    # Use old_instance's can_transition_to method with old status
+                    valid_next_statuses = self.VALID_TRANSITIONS.get(old_status, [])
+                    if new_status not in valid_next_statuses:
+                        raise ValidationError({
+                            'escrow_status': _(
+                                f'Invalid escrow status transition from {old_status} to {new_status}.'
+                            )
+                        })
+            except FurnitureTransaction.DoesNotExist:
+                # New instance, no validation needed
+                pass
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to ensure validation.
+        
+        Args:
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        """
+        # Run full_clean for validation
+        self.full_clean()
+        super().save(*args, **kwargs)
+    
+    def can_transition_to(self, new_status):
+        """
+        Check if transition to new status is valid.
+        
+        Args:
+            new_status: Target escrow status
+            
+        Returns:
+            bool: True if transition is valid, False otherwise
+        """
+        current_status = self.escrow_status
+        valid_next_statuses = self.VALID_TRANSITIONS.get(current_status, [])
+        return new_status in valid_next_statuses or new_status == current_status
+    
+    def hold_escrow(self):
+        """
+        Transition escrow from pending to held.
+        
+        Raises:
+            ValidationError: If current status is not pending
+        """
+        if self.escrow_status != 'pending':
+            raise ValidationError(
+                _('Can only hold escrow from pending status.')
+            )
+        self.escrow_status = 'held'
+        self.save()
+    
+    def release_escrow(self):
+        """
+        Transition escrow from held to released and mark item as sold.
+        
+        Raises:
+            ValidationError: If current status is not held
+        """
+        if self.escrow_status != 'held':
+            raise ValidationError(
+                _('Can only release escrow from held status.')
+            )
+        
+        from django.utils import timezone
+        
+        self.escrow_status = 'released'
+        self.completed_at = timezone.now()
+        self.save()
+        
+        # Mark furniture item as sold
+        self.furniture_item.mark_as_sold()
