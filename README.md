@@ -9,6 +9,7 @@ This marketplace platform facilitates connections between students requiring mov
 ## ✨ Features
 
 ### Core Models
+
 - **Custom User Model** - Extended Django user with student/provider types, phone validation, and profile images
 - **MovingService Model** - Service listings with pricing, ratings, and availability tracking
 - **Booking Model** - Complete booking system with status transitions and validation
@@ -17,11 +18,13 @@ This marketplace platform facilitates connections between students requiring mov
 - **Custom Validators** - Phone number and image validation with comprehensive error handling
 
 ### Technical Stack
+
 - **Django 5.2.8** - Latest stable Django framework
 - **REST API** - Built with Django REST Framework (DRF)
 - **MySQL Support** - Production-ready database integration with UTF-8mb4 charset
 - **Image Handling** - Pillow for image processing with size and format validation
 - **CORS Support** - Cross-Origin Resource Sharing enabled for frontend integration
+- **JWT Authentication** - Secure token-based authentication with rotation and blacklisting
 - **Test-Driven Development** - Comprehensive test suite using `pytest` and `pytest-django`
 - **Virtual Environment** - Isolated Python environment using pyenv-virtualenv
 
@@ -80,12 +83,13 @@ All packages are installed without version pinning to use the latest stable vers
 | Pillow | 12.0.0 | Image handling |
 | djangorestframework | 3.16.1 | REST API framework |
 | django-cors-headers | 4.9.0 | CORS support |
+| djangorestframework-simplejwt | 5.5.1 | JWT Authentication |
 | python-decouple | 3.8 | Environment variable management |
 | pytest | 9.0.1 | Testing framework |
 
 ## 🏗️ Project Structure
 
-```
+```text
 Student-Moving-Services-Marketplace/
 ├── core/                           # Core Django app
 │   ├── models.py                   # Database models (User, Service, Booking, Review, Furniture)
@@ -147,11 +151,13 @@ python -m pytest tests/test_user_model.py -v
 The test suite includes comprehensive tests covering:
 
 #### Environment & Config
+
 - ✅ Environment verification
 - ✅ Database configuration
 - ✅ Integration setup (DRF, CORS, DB Isolation)
 
-#### Core Models
+#### Model Tests
+
 - ✅ User model (Validation, Types, Profiles)
 - ✅ MovingService model (Pricing, Ratings)
 - ✅ Booking model (Status transitions, Validation)
@@ -159,12 +165,21 @@ The test suite includes comprehensive tests covering:
 - ✅ Furniture models (Items, Images, Transactions)
 
 #### Integration Tests
+
 - ✅ REST Framework Configuration (Auth, Permissions, Pagination)
 - ✅ CORS Headers (Middleware, Allowed Origins)
 - ✅ Database Isolation (Test vs Dev DB)
 - ✅ Model Imports & Circular Dependencies
 - ✅ Migration Integrity
 - ✅ API Response Formatting
+
+#### Security & Authentication
+
+- ✅ JWT Token Generation & Validation
+- ✅ Token Rotation & Blacklisting
+- ✅ Custom Authentication Backend
+- ✅ Email-based Login
+- ✅ Protected Route Access
 
 **Current Status**: All tests passing ✅
 
@@ -231,6 +246,7 @@ The application implements three core models with comprehensive validation:
 Custom user model extending Django's `AbstractUser`:
 
 **Fields:**
+
 - `email` - Required, unique email address (case-insensitive)
 - `username` - Standard Django username field
 - `phone_number` - Optional, validated international phone format
@@ -242,12 +258,14 @@ Custom user model extending Django's `AbstractUser`:
 - `updated_at` - Auto-updated timestamp
 
 **Validation:**
+
 - Email uniqueness and normalization to lowercase
 - Phone number format validation (international format, min 10 digits)
 - Profile image size (max 5MB) and format validation
 - User type must be specified
 
 **Methods:**
+
 - `is_student()` - Check if user is a student
 - `is_provider()` - Check if user is a service provider
 
@@ -256,6 +274,7 @@ Custom user model extending Django's `AbstractUser`:
 Service listings created by providers:
 
 **Fields:**
+
 - `provider` - Foreign key to User (must be provider type)
 - `service_name` - Name of the service (required)
 - `description` - Detailed description (required)
@@ -267,6 +286,7 @@ Service listings created by providers:
 - `updated_at` - Auto-updated timestamp
 
 **Validation:**
+
 - Provider must have user_type='provider'
 - Service name and description cannot be empty
 - Base price must be greater than 0
@@ -278,6 +298,7 @@ Service listings created by providers:
 Booking system for students to book services:
 
 **Fields:**
+
 - `student` - Foreign key to User (must be student type)
 - `provider` - Foreign key to User (must be provider type)
 - `service` - Foreign key to MovingService
@@ -290,6 +311,7 @@ Booking system for students to book services:
 - `updated_at` - Auto-updated timestamp
 
 **Validation:**
+
 - Student must have user_type='student'
 - Provider must have user_type='provider'
 - Pickup and dropoff locations cannot be empty
@@ -297,11 +319,13 @@ Booking system for students to book services:
 - Status transitions follow business rules:
   - Cannot go from 'pending' to 'completed' (must confirm first)
   - Cannot modify 'completed' bookings
+
 ### Review Model
 
 Feedback system for completed bookings:
 
 **Fields:**
+
 - `booking` - One-to-one relationship with Booking
 - `reviewer` - User who wrote the review
 - `reviewee` - User being reviewed
@@ -314,6 +338,7 @@ Feedback system for completed bookings:
 Complete system for buying and selling furniture:
 
 **FurnitureItem:**
+
 - `seller` - User selling the item
 - `title`, `description` - Item details
 - `price` - Cost in USD
@@ -322,6 +347,7 @@ Complete system for buying and selling furniture:
 - `is_sold` - Status flag
 
 **FurnitureTransaction:**
+
 - `item` - Reference to FurnitureItem
 - `buyer`, `seller` - Users involved
 - `sale_price` - Final price
@@ -460,7 +486,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.1.0 (Marketplace & API Configuration)
+**Current Version**: 2.2.0 (Authentication System)
 
 - ✅ Environment setup complete
 - ✅ MySQL database configured
@@ -470,6 +496,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ MovingService & Booking models implemented
 - ✅ Review model implemented
 - ✅ Furniture marketplace models implemented
+- ✅ User authentication & authorization implemented (JWT)
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
 - 🚧 REST API endpoints implementation
@@ -479,7 +506,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 1. ✅ ~~Configure MySQL database~~ (Complete)
 2. ✅ ~~Define data models for marketplace~~ (Complete)
-3. Implement user authentication and authorization
+3. ✅ ~~Implement user authentication and authorization~~ (Complete)
 4. Create REST API endpoints for marketplace operations
 5. Build frontend interface
 6. Add payment integration
@@ -488,4 +515,4 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ---
 
-**Built with ❤️ using Django and Test-Driven Development**
+> **Built with ❤️ using Django and Test-Driven Development**
