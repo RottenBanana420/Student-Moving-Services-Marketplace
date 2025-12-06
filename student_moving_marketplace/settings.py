@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     
     # Third-party apps
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',  # JWT token blacklisting
     'corsheaders',
     
     # Local apps
@@ -155,14 +156,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # IMPORTANT: This must be set before running initial migrations
 AUTH_USER_MODEL = 'core.User'
 
+# Authentication backends - use custom email backend for JWT
+AUTHENTICATION_BACKENDS = [
+    'core.backends.EmailBackend',  # Custom email-based authentication
+    'django.contrib.auth.backends.ModelBackend',  # Fallback to default
+]
+
+
 
 # Django REST Framework settings
 REST_FRAMEWORK = {
-    # Authentication classes - prepared for JWT implementation
+    # Authentication classes - JWT as primary authentication
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
-        # JWT will be added here: 'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',  # Keep for browsable API
+        'rest_framework.authentication.BasicAuthentication',  # Keep for development
     ],
     
     # Permission classes
@@ -239,3 +247,60 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+
+# ============================================================================
+# JWT Authentication Settings (djangorestframework-simplejwt)
+# ============================================================================
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    # Token lifetimes
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # Short-lived for security
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),     # Balance between security and UX
+    
+    # Token rotation and blacklisting
+    'ROTATE_REFRESH_TOKENS': True,   # Issue new refresh token on refresh
+    'BLACKLIST_AFTER_ROTATION': True,  # Blacklist old refresh token after rotation
+    'UPDATE_LAST_LOGIN': True,  # Update user's last_login on token generation
+    
+    # Signing configuration
+    'ALGORITHM': 'HS256',  # HMAC using SHA-256
+    'SIGNING_KEY': SECRET_KEY,  # Use Django's SECRET_KEY for signing
+    'VERIFYING_KEY': None,  # Not needed for symmetric algorithm
+    'AUDIENCE': None,
+    'ISSUER': None,
+    'JWK_URL': None,
+    'LEEWAY': 0,  # No leeway for token expiration (strict)
+    
+    # Token validation
+    'AUTH_HEADER_TYPES': ('Bearer',),  # Only accept 'Bearer' scheme
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',  # Field on User model to identify user
+    'USER_ID_CLAIM': 'user_id',  # Claim in token payload
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
+    
+    # Token type and claims
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser',
+    
+    # JWT ID (jti) claim - required for blacklisting
+    'JTI_CLAIM': 'jti',
+    
+    # Sliding tokens (not used, but configured for completeness)
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
+    
+    # Token verification settings
+    'CHECK_REVOKE_TOKEN': True,  # Check if token is blacklisted
+}
+
+# Security recommendations for production:
+# 1. HTTPS is MANDATORY for all token-related endpoints
+# 2. Store access tokens in memory on client-side (not localStorage)
+# 3. Store refresh tokens in HTTP-only cookies for web clients
+# 4. Implement rate limiting on token endpoints (already configured in REST_FRAMEWORK)
+# 5. Run 'python manage.py flushexpiredtokens' daily via cron to clean up blacklist
+
