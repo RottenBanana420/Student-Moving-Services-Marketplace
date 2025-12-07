@@ -190,6 +190,12 @@ The test suite includes comprehensive tests covering:
 - ✅ Rate Limiting (Login & Refresh)
 - ✅ Concurrent Registration Handling
 
+#### Service Management
+
+- ✅ Service Creation (Provider Verification)
+- ✅ Service Listing (Filtering, Sorting, Pagination)
+- ✅ Database Optimization (select_related)
+
 **Current Status**: All tests passing ✅
 
 ## 🚦 Quick Start
@@ -384,6 +390,13 @@ Complete system for buying and selling furniture:
 | POST | `/api/token/verify/` | Verify token validity | No |
 | POST | `/api/token/blacklist/` | Blacklist a refresh token | Yes |
 
+### Service Management
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/services/list/` | List services with filtering, sorting, and pagination | No |
+| POST | `/api/services/` | Create a new service listing | Yes (Provider) |
+
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
 ## 🔧 Configuration
@@ -519,7 +532,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.3.0 (Enhanced Authentication & Profiles)
+**Current Version**: 2.4.0 (Service Management System)
 
 - ✅ Environment setup complete
 - ✅ MySQL database configured
@@ -532,9 +545,10 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Users authentication (Login, Register, Logout)
 - ✅ Profile Management (Get, Update)
 - ✅ Provider Verification System
+- ✅ Service Management (Create, List, Filter, Sort)
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
-- 🚧 Marketplace REST API endpoints implementation
+- 🚧 Booking & Review System API implementation
 - 🚧 Frontend interface
 
 ## 🎯 Next Steps
@@ -542,11 +556,12 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 1. ✅ ~~Implement user authentication~~ (Complete)
 2. ✅ ~~Implement profile management~~ (Complete)
 3. ✅ ~~Implement provider verification~~ (Complete)
-4. Create REST API endpoints for marketplace operations
-5. Build frontend interface
-6. Add payment integration
-7. Implement review and rating system
-8. Deploy to production
+4. ✅ ~~Implement service management~~ (Complete)
+5. Implement Booking System endpoints
+6. Implement Review System endpoints
+7. Build frontend interface
+8. Add payment integration
+9. Deploy to production
 
 ---
 
