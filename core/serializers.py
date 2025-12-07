@@ -194,3 +194,23 @@ class LoginSerializer(serializers.Serializer):
         help_text='User password'
     )
 
+
+
+class TokenRefreshSerializer(serializers.Serializer):
+    """
+    Serializer for token refresh with comprehensive validation.
+    
+    Security features:
+    - Validates refresh token format
+    - Checks token signature integrity
+    - Verifies token hasn't expired
+    - Ensures token is actually a refresh token (not access token)
+    - Checks blacklist status
+    
+    The actual validation is performed by djangorestframework-simplejwt.
+    This serializer provides explicit field definition and documentation.
+    """
+    refresh = serializers.CharField(
+        required=True,
+        help_text='Valid refresh token to exchange for new access token'
+    )

@@ -204,6 +204,7 @@ REST_FRAMEWORK = {
         'anon': '100/hour',  # Anonymous users: 100 requests per hour
         'user': '1000/hour',  # Authenticated users: 1000 requests per hour
         'login': '5/minute',  # Login attempts: 5 per minute (strict for security)
+        'refresh': '10/minute',  # Token refresh: 10 per minute (prevent abuse)
     },
     
     # Exception handler for consistent error responses

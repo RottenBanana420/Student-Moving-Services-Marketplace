@@ -5,6 +5,7 @@ Custom views for Student Moving Services Marketplace.
 import logging
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -12,7 +13,12 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from django.db import IntegrityError
 from django.contrib.auth import get_user_model
-from .serializers import EmailTokenObtainPairSerializer, UserRegistrationSerializer, LoginSerializer
+from .serializers import (
+    EmailTokenObtainPairSerializer,
+    UserRegistrationSerializer,
+    LoginSerializer,
+    TokenRefreshSerializer
+)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -192,3 +198,142 @@ class LoginView(APIView):
             'refresh': refresh_token,
             'user': user_data
         }, status=status.HTTP_200_OK)
+
+
+class CustomTokenRefreshView(APIView):
+    """
+    API endpoint for refreshing JWT access tokens.
+    
+    Security features:
+    - Rate limiting: 10 requests per minute per IP
+    - Refresh token validation (signature, expiration, type)
+    - Blacklist checking (tokens blacklisted after logout)
+    - Token rotation (new refresh token issued)
+    - Old refresh token automatically blacklisted
+    - Comprehensive logging for security monitoring
+    
+    POST /api/auth/refresh/
+    Request body: {"refresh": "<jwt_refresh_token>"}
+    
+    Success response (200):
+    {
+        "access": "<new_jwt_access_token>",
+        "refresh": "<new_jwt_refresh_token>"  # If rotation enabled
+    }
+    
+    Error responses:
+    - 400: Invalid request format (missing refresh field)
+    - 401: Invalid, expired, or blacklisted refresh token
+    - 429: Rate limit exceeded (too many refresh attempts)
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'refresh'
+    serializer_class = TokenRefreshSerializer
+    
+    def get_client_ip(self, request):
+        """
+        Get client IP address from request.
+        Handles proxy headers for accurate IP detection.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def post(self, request, *args, **kwargs):
+        """
+        Handle token refresh request with comprehensive security measures.
+        """
+        # Validate request data
+        serializer = TokenRefreshSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        refresh_token_str = serializer.validated_data['refresh']
+        client_ip = self.get_client_ip(request)
+        
+        try:
+            # Create RefreshToken instance from string
+            # This validates:
+            # - Token signature
+            # - Token expiration
+            # - Token format
+            # - Blacklist status (if CHECK_REVOKE_TOKEN is True)
+            refresh_token = RefreshToken(refresh_token_str)
+            
+            # Verify it's actually a refresh token (not access token)
+            if refresh_token.get('token_type') != 'refresh':
+                logger.warning(
+                    f"Token refresh attempt with non-refresh token. IP: {client_ip}"
+                )
+                return Response(
+                    {'detail': 'Token has wrong type'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            # Generate new access token
+            access_token = str(refresh_token.access_token)
+            
+            # Prepare response data
+            response_data = {
+                'access': access_token
+            }
+            
+            # If token rotation is enabled, include new refresh token
+            # The settings have ROTATE_REFRESH_TOKENS=True and BLACKLIST_AFTER_ROTATION=True
+            # So we need to manually handle rotation
+            from django.conf import settings as django_settings
+            if django_settings.SIMPLE_JWT.get('ROTATE_REFRESH_TOKENS', False):
+                # Get user_id from the refresh token
+                user_id = refresh_token.get('user_id')
+                
+                # Blacklist the old refresh token
+                if django_settings.SIMPLE_JWT.get('BLACKLIST_AFTER_ROTATION', False):
+                    try:
+                        refresh_token.blacklist()
+                    except AttributeError:
+                        # Blacklist not available
+                        pass
+                
+                # Generate new refresh token for the user
+                User = get_user_model()
+                try:
+                    user = User.objects.get(id=user_id)
+                    new_refresh = RefreshToken.for_user(user)
+                    response_data['refresh'] = str(new_refresh)
+                except User.DoesNotExist:
+                    # User doesn't exist, but we already generated access token
+                    # This shouldn't happen in normal flow
+                    pass
+            
+            # Log successful refresh
+            logger.info(
+                f"Successful token refresh. IP: {client_ip}"
+            )
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except TokenError as e:
+            # Token is invalid, expired, or blacklisted
+            logger.warning(
+                f"Failed token refresh attempt. Error: {str(e)}, IP: {client_ip}"
+            )
+            return Response(
+                {'detail': str(e)},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        except Exception as e:
+            # Unexpected error
+            logger.error(
+                f"Unexpected error during token refresh. Error: {str(e)}, IP: {client_ip}"
+            )
+            return Response(
+                {'detail': 'Token refresh failed'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )

@@ -21,7 +21,12 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
     TokenBlacklistView,
 )
-from core.views import EmailTokenObtainPairView, UserRegistrationView, LoginView
+from core.views import (
+    EmailTokenObtainPairView,
+    UserRegistrationView,
+    LoginView,
+    CustomTokenRefreshView
+)
 
 
 urlpatterns = [
@@ -33,7 +38,8 @@ urlpatterns = [
     
     # JWT Authentication endpoints
     path('api/token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),  # Custom view with rate limiting
     path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('api/token/blacklist/', TokenBlacklistView.as_view(), name='token_blacklist'),
 ]
+
