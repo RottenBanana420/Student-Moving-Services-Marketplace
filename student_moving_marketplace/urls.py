@@ -21,13 +21,15 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
     TokenBlacklistView,
 )
-from core.views import EmailTokenObtainPairView, UserRegistrationView
+from core.views import EmailTokenObtainPairView, UserRegistrationView, LoginView
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     
     # Authentication endpoints
     path('api/auth/register/', UserRegistrationView.as_view(), name='user_register'),
+    path('api/auth/login/', LoginView.as_view(), name='user_login'),
     
     # JWT Authentication endpoints
     path('api/token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
