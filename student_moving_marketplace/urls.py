@@ -26,7 +26,8 @@ from core.views import (
     UserRegistrationView,
     LoginView,
     CustomTokenRefreshView,
-    UserProfileView
+    UserProfileView,
+    ProviderVerificationView
 )
 
 
@@ -37,6 +38,7 @@ urlpatterns = [
     path('api/auth/register/', UserRegistrationView.as_view(), name='user_register'),
     path('api/auth/login/', LoginView.as_view(), name='user_login'),
     path('api/auth/profile/', UserProfileView.as_view(), name='user_profile'),
+    path('api/auth/verify-provider/', ProviderVerificationView.as_view(), name='verify_provider'),
     
     # JWT Authentication endpoints
     path('api/token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),

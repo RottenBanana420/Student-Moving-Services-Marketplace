@@ -401,3 +401,91 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         return instance
 
 
+class ProviderVerificationRequestSerializer(serializers.Serializer):
+    """
+    Serializer for provider verification request.
+    
+    Validates that:
+    - provider_id is provided and is a valid integer
+    - provider exists in the database
+    - provider has user_type='provider'
+    
+    Fields:
+    - provider_id: Required integer ID of the provider to verify
+    """
+    
+    provider_id = serializers.IntegerField(
+        required=True,
+        help_text='ID of the provider user to verify'
+    )
+    
+    def validate_provider_id(self, value):
+        """
+        Validate that provider_id is a valid integer.
+        
+        Note: We don't check if the user exists here because we want the view
+        to return a proper 404 response for non-existent users, not a 400
+        validation error.
+        
+        Args:
+            value: provider_id integer
+            
+        Returns:
+            int: Validated provider_id
+            
+        Raises:
+            ValidationError: If provider exists but is not a provider type
+        """
+        # Only validate that it's a positive integer
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Provider ID must be a positive integer."
+            )
+        
+        # Check if user exists and validate user_type
+        # We do this here to provide better error messages for validation vs not found
+        try:
+            user = User.objects.get(id=value)
+            # Check if user is a provider
+            if user.user_type != 'provider':
+                raise serializers.ValidationError(
+                    f"User with ID {value} is not a provider. Only provider accounts can be verified."
+                )
+        except User.DoesNotExist:
+            # Don't raise validation error here - let the view return 404
+            # This allows proper HTTP status code differentiation
+            pass
+        
+        return value
+
+
+class ProviderVerificationResponseSerializer(serializers.ModelSerializer):
+    """
+    Serializer for provider verification response.
+    
+    Returns verified provider information excluding sensitive data.
+    
+    Fields:
+    - id: Provider user ID
+    - email: Provider email address
+    - user_type: Should always be 'provider'
+    - is_verified: Verification status (should be True after verification)
+    - phone_number: Provider phone number
+    - university_name: Provider university
+    - created_at: Account creation timestamp
+    - updated_at: Last update timestamp
+    """
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'user_type',
+            'is_verified',
+            'phone_number',
+            'university_name',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = fields  # All fields are read-only for response

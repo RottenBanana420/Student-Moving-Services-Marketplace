@@ -513,3 +513,168 @@ class UserProfileView(APIView):
         )
 
 
+class ProviderVerificationView(APIView):
+    """
+    Admin-only endpoint for verifying provider accounts.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Requires staff privileges (IsStaffUser - is_staff=True)
+    - Validates target user is a provider
+    - Logs all verification actions for audit trail
+    - Returns appropriate error codes (401, 403, 404, 400)
+    - Idempotent operation (can verify already-verified providers)
+    
+    POST /api/auth/verify-provider/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {"provider_id": 123}
+    
+    Success response (200):
+    {
+        "id": 123,
+        "email": "provider@example.com",
+        "user_type": "provider",
+        "is_verified": true,
+        "phone_number": "+1234567890",
+        "university_name": "Example University",
+        "created_at": "2025-12-06T20:00:00Z",
+        "updated_at": "2025-12-07T08:30:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: Authenticated but not staff user
+    - 404: Target provider doesn't exist
+    - 400: Invalid request (missing provider_id, target is not a provider, etc.)
+    - 405: Method not allowed (only POST supported)
+    """
+    permission_classes = [AllowAny]  # Will check manually for better error messages
+    
+    def get_client_ip(self, request):
+        """
+        Get client IP address from request.
+        Handles proxy headers for accurate IP detection.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def post(self, request, *args, **kwargs):
+        """
+        Handle provider verification request.
+        
+        Steps:
+        1. Verify user is authenticated
+        2. Verify user has staff privileges
+        3. Validate request data (provider_id)
+        4. Verify target user exists and is a provider
+        5. Update is_verified to True
+        6. Log verification action
+        7. Return updated provider information
+        """
+        # Step 1: Check authentication
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Step 2: Check staff privileges
+        if not request.user.is_staff:
+            logger.warning(
+                f"Non-staff user attempted provider verification. "
+                f"User: {request.user.email}, IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': 'You do not have permission to perform this action. Staff privileges required.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Step 3: Validate request data
+        from .serializers import ProviderVerificationRequestSerializer
+        request_serializer = ProviderVerificationRequestSerializer(data=request.data)
+        
+        if not request_serializer.is_valid():
+            return Response(
+                request_serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        provider_id = request_serializer.validated_data['provider_id']
+        
+        # Step 4: Get target provider user
+        try:
+            provider_user = User.objects.get(id=provider_id)
+        except User.DoesNotExist:
+            logger.warning(
+                f"Provider verification attempted for non-existent user. "
+                f"Provider ID: {provider_id}, Admin: {request.user.email}, "
+                f"IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': f'User with ID {provider_id} does not exist.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate user is a provider (should be caught by serializer, but double-check)
+        if provider_user.user_type != 'provider':
+            logger.warning(
+                f"Verification attempted on non-provider user. "
+                f"User ID: {provider_id}, User Type: {provider_user.user_type}, "
+                f"Admin: {request.user.email}, IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': f'User with ID {provider_id} is not a provider. Only provider accounts can be verified.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Step 5: Update is_verified to True (idempotent operation)
+        was_already_verified = provider_user.is_verified
+        provider_user.is_verified = True
+        provider_user.save(update_fields=['is_verified', 'updated_at'])
+        
+        # Step 6: Log verification action for audit trail
+        logger.info(
+            f"Provider verification {'confirmed' if was_already_verified else 'completed'}. "
+            f"Provider: {provider_user.email} (ID: {provider_user.id}), "
+            f"Admin: {request.user.email} (ID: {request.user.id}), "
+            f"IP: {self.get_client_ip(request)}, "
+            f"Already Verified: {was_already_verified}"
+        )
+        
+        # Step 7: Return updated provider information
+        from .serializers import ProviderVerificationResponseSerializer
+        response_serializer = ProviderVerificationResponseSerializer(provider_user)
+        
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+    
+    def get(self, request, *args, **kwargs):
+        """GET method not allowed."""
+        return Response(
+            {'detail': 'Method "GET" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'detail': 'Method "PUT" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'detail': 'Method "PATCH" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'detail': 'Method "DELETE" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
