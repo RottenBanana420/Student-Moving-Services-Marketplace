@@ -364,16 +364,25 @@ Complete system for buying and selling furniture:
 
 ## 🔌 API Endpoints
 
-### Authentication
+### Authentication & Profile
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | POST | `/api/auth/register/` | Register a new user | No |
 | POST | `/api/auth/login/` | Login with email/password | No |
+| POST | `/api/auth/logout/` | Logout (Blacklist refresh token) | Yes |
+| GET | `/api/auth/profile/` | Retrieve user profile | Yes |
+| PUT/PATCH | `/api/auth/profile/` | Update user profile | Yes |
+| POST | `/api/auth/verify-provider/` | Verify provider account (Admin only) | Yes (Admin) |
+
+### Token Management
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
 | POST | `/api/token/` | Obtain access/refresh pair | No |
 | POST | `/api/token/refresh/` | Refresh access token (rotates refresh token) | No |
 | POST | `/api/token/verify/` | Verify token validity | No |
-| POST | `/api/token/blacklist/` | Blacklist a refresh token (Logout) | Yes |
+| POST | `/api/token/blacklist/` | Blacklist a refresh token | Yes |
 
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
@@ -510,7 +519,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.2.0 (Authentication System)
+**Current Version**: 2.3.0 (Enhanced Authentication & Profiles)
 
 - ✅ Environment setup complete
 - ✅ MySQL database configured
@@ -520,7 +529,9 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ MovingService & Booking models implemented
 - ✅ Review model implemented
 - ✅ Furniture marketplace models implemented
-- ✅ Users authentication & authorization (JWT, Rotation, Throttling)
+- ✅ Users authentication (Login, Register, Logout)
+- ✅ Profile Management (Get, Update)
+- ✅ Provider Verification System
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
 - 🚧 Marketplace REST API endpoints implementation
@@ -528,9 +539,9 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🎯 Next Steps
 
-1. ✅ ~~Configure MySQL database~~ (Complete)
-2. ✅ ~~Define data models for marketplace~~ (Complete)
-3. ✅ ~~Implement user authentication and authorization~~ (Complete)
+1. ✅ ~~Implement user authentication~~ (Complete)
+2. ✅ ~~Implement profile management~~ (Complete)
+3. ✅ ~~Implement provider verification~~ (Complete)
 4. Create REST API endpoints for marketplace operations
 5. Build frontend interface
 6. Add payment integration

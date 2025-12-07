@@ -42,11 +42,6 @@ db.sqlite3-journal
 /staticfiles
 /static
 
-# Django migrations (keep migrations directory but ignore generated files if needed)
-# Uncomment below if you want to ignore migrations
-# */migrations/*.py
-# !*/migrations/__init__.py
-
 # Environment variables
 .env
 .env.local
@@ -91,58 +86,27 @@ nosetests.xml
 celerybeat-schedule
 celerybeat.pid
 
-# SageMath parsed files
-*.sage.py
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
+# Documentation
 /site
+docs/_build/
+docs/.build/
 
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
+# Node/Frontend
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
 
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-logs/
-*.log.*
-
-# OS
-.DS_Store
+# OS Generated
 Thumbs.db
 desktop.ini
-
-# Backup files
-*.bak
-*.backup
-*~
-
-# Temporary files
-*.tmp
-*.temp
-tmp/
-temp/
+$RECYCLE.BIN/
+.AppleDouble
+.LSOverride
+._*
+.directory
+.Trash-*
 
 # Security - Never commit these!
 *.pem
@@ -151,52 +115,3 @@ temp/
 *.crt
 secrets.json
 credentials.json
-
-# Local configuration
-local_settings.py
-settings_local.py
-
-# Media files (user uploads) - typically not committed
-media/
-
-# Static files collected by Django
-staticfiles/
-static_root/
-
-# Node modules (if using frontend tools)
-node_modules/
-npm-debug.log
-yarn-error.log
-package-lock.json
-yarn.lock
-
-# Compiled translations
-*.mo
-
-# Documentation builds
-docs/_build/
-docs/.build/
-
-# PyCharm
-.idea/
-
-# VS Code
-.vscode/
-*.code-workspace
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-*~
-.directory
-.Trash-*
