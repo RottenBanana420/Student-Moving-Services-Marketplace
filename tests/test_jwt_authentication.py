@@ -72,6 +72,13 @@ def valid_tokens(student_user):
 # 1. TOKEN GENERATION TESTS
 # ============================================================================
 
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """Clear Django cache before each test to reset throttle limits."""
+    from django.core.cache import cache
+    cache.clear()
+
+
 @pytest.mark.django_db
 class TestTokenGeneration:
     """Test token generation with various user data scenarios."""
