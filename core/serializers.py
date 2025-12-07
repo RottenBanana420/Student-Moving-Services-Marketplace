@@ -214,3 +214,58 @@ class TokenRefreshSerializer(serializers.Serializer):
         required=True,
         help_text='Valid refresh token to exchange for new access token'
     )
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user profile retrieval.
+    
+    Security features:
+    - Excludes sensitive fields (password, is_staff, is_superuser, etc.)
+    - Includes all user-relevant information
+    - Generates proper profile image URLs
+    
+    Fields included:
+    - id: User ID
+    - email: User email address
+    - phone_number: User phone number
+    - university_name: User's university
+    - user_type: 'student' or 'provider'
+    - is_verified: Verification status
+    - profile_image_url: Full URL to profile image (null if not uploaded)
+    - created_at: Account creation timestamp
+    """
+    
+    profile_image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'phone_number',
+            'university_name',
+            'user_type',
+            'is_verified',
+            'profile_image_url',
+            'created_at'
+        ]
+        read_only_fields = fields  # All fields are read-only for profile retrieval
+    
+    def get_profile_image_url(self, obj):
+        """
+        Generate full URL for profile image.
+        
+        Returns:
+            str: Full URL to profile image, or None if no image uploaded
+        """
+        if obj.profile_image:
+            request = self.context.get('request')
+            if request is not None:
+                # Build absolute URI for the image
+                return request.build_absolute_uri(obj.profile_image.url)
+            else:
+                # Fallback to relative URL if request context not available
+                return obj.profile_image.url
+        return None
+

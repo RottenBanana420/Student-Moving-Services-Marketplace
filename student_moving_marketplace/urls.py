@@ -25,7 +25,8 @@ from core.views import (
     EmailTokenObtainPairView,
     UserRegistrationView,
     LoginView,
-    CustomTokenRefreshView
+    CustomTokenRefreshView,
+    UserProfileView
 )
 
 
@@ -35,6 +36,7 @@ urlpatterns = [
     # Authentication endpoints
     path('api/auth/register/', UserRegistrationView.as_view(), name='user_register'),
     path('api/auth/login/', LoginView.as_view(), name='user_login'),
+    path('api/auth/profile/', UserProfileView.as_view(), name='user_profile'),
     
     # JWT Authentication endpoints
     path('api/token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),

@@ -337,3 +337,100 @@ class CustomTokenRefreshView(APIView):
                 {'detail': 'Token refresh failed'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
+
+
+class UserProfileView(APIView):
+    """
+    API endpoint for retrieving authenticated user's profile.
+    
+    Security features:
+    - Requires JWT authentication
+    - Only allows GET requests
+    - Users can only access their own profile
+    - Excludes sensitive data (password, permissions, etc.)
+    
+    GET /api/auth/profile/
+    Headers: Authorization: Bearer <access_token>
+    
+    Success response (200):
+    {
+        "id": 1,
+        "email": "user@example.com",
+        "phone_number": "+1234567890",
+        "university_name": "Example University",
+        "user_type": "student",
+        "is_verified": false,
+        "profile_image_url": "http://localhost:8000/media/profile_images/1/photo.jpg",
+        "created_at": "2025-12-06T20:00:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 404: Authenticated user no longer exists in database (edge case)
+    - 405: Method not allowed (only GET is supported)
+    """
+    permission_classes = [AllowAny]  # Will be overridden by authentication
+    
+    def get(self, request, *args, **kwargs):
+        """
+        Retrieve the authenticated user's profile.
+        
+        The authentication is handled by DRF's authentication classes.
+        If authentication fails, DRF will automatically return 401.
+        """
+        # Check if user is authenticated
+        # DRF's JWTAuthentication will set request.user if token is valid
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Edge case: Check if user still exists in database
+        # This handles the case where a user was deleted but token is still valid
+        try:
+            user = User.objects.get(id=request.user.id)
+        except User.DoesNotExist:
+            logger.warning(
+                f"Profile access attempt for non-existent user. "
+                f"User ID: {request.user.id}"
+            )
+            return Response(
+                {'detail': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Serialize and return user profile
+        from .serializers import UserProfileSerializer
+        serializer = UserProfileSerializer(user, context={'request': request})
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self, request, *args, **kwargs):
+        """POST method not allowed."""
+        return Response(
+            {'detail': 'Method "POST" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'detail': 'Method "PUT" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'detail': 'Method "PATCH" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'detail': 'Method "DELETE" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+
