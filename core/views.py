@@ -341,13 +341,15 @@ class CustomTokenRefreshView(APIView):
 
 class UserProfileView(APIView):
     """
-    API endpoint for retrieving authenticated user's profile.
+    API endpoint for retrieving and updating authenticated user's profile.
     
     Security features:
     - Requires JWT authentication
-    - Only allows GET requests
-    - Users can only access their own profile
+    - Supports GET (retrieve), PUT (full update), and PATCH (partial update)
+    - Users can only access/update their own profile
     - Excludes sensitive data (password, permissions, etc.)
+    - Validates all input data
+    - Handles file uploads for profile images
     
     GET /api/auth/profile/
     Headers: Authorization: Bearer <access_token>
@@ -364,10 +366,20 @@ class UserProfileView(APIView):
         "created_at": "2025-12-06T20:00:00Z"
     }
     
+    PUT /api/auth/profile/
+    PATCH /api/auth/profile/
+    Headers: Authorization: Bearer <access_token>
+    Body: {
+        "phone_number": "+1234567890",
+        "university_name": "New University",
+        "profile_image": <file>  # Optional
+    }
+    
     Error responses:
     - 401: Missing, invalid, or expired JWT token
+    - 400: Invalid data (validation errors)
     - 404: Authenticated user no longer exists in database (edge case)
-    - 405: Method not allowed (only GET is supported)
+    - 405: Method not allowed (only GET, PUT, PATCH supported)
     """
     permission_classes = [AllowAny]  # Will be overridden by authentication
     
@@ -406,24 +418,90 @@ class UserProfileView(APIView):
         
         return Response(serializer.data, status=status.HTTP_200_OK)
     
+    def put(self, request, *args, **kwargs):
+        """
+        Full update of authenticated user's profile.
+        
+        All updatable fields should be provided (phone_number, university_name).
+        Profile image is optional.
+        """
+        return self._update_profile(request, partial=False)
+    
+    def patch(self, request, *args, **kwargs):
+        """
+        Partial update of authenticated user's profile.
+        
+        Only provided fields will be updated.
+        """
+        return self._update_profile(request, partial=True)
+    
+    def _update_profile(self, request, partial=False):
+        """
+        Internal method to handle profile updates (PUT/PATCH).
+        
+        Args:
+            request: HTTP request
+            partial: If True, allows partial updates (PATCH). If False, requires all fields (PUT).
+            
+        Returns:
+            Response: Updated profile data or error
+        """
+        # Check if user is authenticated
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Get user from database
+        try:
+            user = User.objects.get(id=request.user.id)
+        except User.DoesNotExist:
+            logger.warning(
+                f"Profile update attempt for non-existent user. "
+                f"User ID: {request.user.id}"
+            )
+            return Response(
+                {'detail': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Use update serializer for validation and update
+        from .serializers import UserProfileUpdateSerializer
+        serializer = UserProfileUpdateSerializer(
+            user,
+            data=request.data,
+            partial=partial,
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            # Save the updated profile
+            serializer.save()
+            
+            # Return updated profile using the read serializer
+            from .serializers import UserProfileSerializer
+            response_serializer = UserProfileSerializer(user, context={'request': request})
+            
+            logger.info(
+                f"Profile updated successfully. "
+                f"User ID: {user.id}, Email: {user.email}, "
+                f"Partial: {partial}"
+            )
+            
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+        else:
+            # Return validation errors
+            logger.warning(
+                f"Profile update validation failed. "
+                f"User ID: {user.id}, Errors: {serializer.errors}"
+            )
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
     def post(self, request, *args, **kwargs):
         """POST method not allowed."""
         return Response(
             {'detail': 'Method "POST" not allowed.'},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED
-        )
-    
-    def put(self, request, *args, **kwargs):
-        """PUT method not allowed."""
-        return Response(
-            {'detail': 'Method "PUT" not allowed.'},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED
-        )
-    
-    def patch(self, request, *args, **kwargs):
-        """PATCH method not allowed."""
-        return Response(
-            {'detail': 'Method "PATCH" not allowed.'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
     
@@ -433,4 +511,5 @@ class UserProfileView(APIView):
             {'detail': 'Method "DELETE" not allowed.'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
 

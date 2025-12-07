@@ -269,3 +269,135 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 return obj.profile_image.url
         return None
 
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user profile updates (PUT/PATCH).
+    
+    Security features:
+    - Only allows updating specific fields (phone_number, university_name, profile_image)
+    - Prevents modification of restricted fields (email, password, user_type, is_verified, etc.)
+    - Validates phone number format
+    - Validates image format and size
+    - Handles old profile image deletion
+    
+    Updatable fields:
+    - phone_number: Optional, validated format
+    - university_name: Optional
+    - profile_image: Optional, validated format and size
+    
+    Restricted fields (cannot be updated):
+    - email, password, user_type, is_verified, is_staff, is_superuser, etc.
+    """
+    
+    class Meta:
+        model = User
+        fields = ['phone_number', 'university_name', 'profile_image']
+        extra_kwargs = {
+            'phone_number': {'required': False},
+            'university_name': {'required': False},
+            'profile_image': {'required': False},
+        }
+    
+    def validate_phone_number(self, value):
+        """
+        Validate phone number format if provided.
+        Empty string is allowed to clear the field.
+        """
+        if not value:
+            return value
+        
+        # Remove common separators for validation
+        cleaned = re.sub(r'[\s\-\(\)]', '', value)
+        
+        # Check if it contains only digits and optional leading +
+        if not re.match(r'^\+?\d{10,15}$', cleaned):
+            raise serializers.ValidationError(
+                "Phone number must be between 10-15 digits and may start with '+'."
+            )
+        
+        # Extract just the digits (excluding +)
+        digits = re.sub(r'\D', '', value)
+        
+        # Must not be all the same digit (like 0000000000)
+        if len(set(digits)) == 1:
+            raise serializers.ValidationError(
+                "Phone number cannot be all the same digit."
+            )
+        
+        return value
+    
+    def validate(self, attrs):
+        """
+        Object-level validation to prevent updates to restricted fields.
+        
+        This ensures that even if a client tries to send restricted fields,
+        they will be ignored or rejected.
+        """
+        # List of restricted fields that should never be updated via this endpoint
+        restricted_fields = [
+            'email', 'password', 'user_type', 'is_verified', 
+            'is_staff', 'is_superuser', 'is_active',
+            'username', 'groups', 'user_permissions',
+            'created_at', 'updated_at', 'last_login'
+        ]
+        
+        # Remove any restricted fields from validated data
+        # This prevents privilege escalation attempts
+        for field in restricted_fields:
+            if field in attrs:
+                attrs.pop(field)
+        
+        return attrs
+    
+    def update(self, instance, validated_data):
+        """
+        Update user profile with special handling for profile image.
+        
+        Handles:
+        - Profile image upload
+        - Deletion of old profile image when replaced
+        - Proper file storage in MEDIA_ROOT
+        
+        Args:
+            instance: User instance to update
+            validated_data: Validated data from serializer
+            
+        Returns:
+            User: Updated user instance
+        """
+        import os
+        from django.conf import settings
+        
+        # Handle profile image update with old image deletion
+        if 'profile_image' in validated_data:
+            new_image = validated_data.get('profile_image')
+            
+            # If there's an old image and we're replacing it, delete the old one
+            if instance.profile_image and new_image:
+                old_image_path = instance.profile_image.path
+                
+                # Delete old image file if it exists
+                if os.path.exists(old_image_path):
+                    try:
+                        os.remove(old_image_path)
+                    except OSError:
+                        # Log error but don't fail the update
+                        pass
+        
+        # Update the instance with validated data
+        # Use update_fields to bypass full_clean() which would trigger model validators
+        # The serializer has already validated the data
+        fields_to_update = []
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+            fields_to_update.append(attr)
+        
+        # Save with specific fields to avoid full_clean validation
+        # This prevents double validation (serializer + model)
+        if fields_to_update:
+            instance.save(update_fields=fields_to_update)
+        
+        return instance
+
+

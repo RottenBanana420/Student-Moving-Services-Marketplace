@@ -392,26 +392,31 @@ class TestUserProfileEndpoint:
     
     def test_profile_endpoint_only_allows_get(self, api_client, student_access_token):
         """
-        Test that profile endpoint only accepts GET requests.
+        Test that profile endpoint accepts GET, PUT, and PATCH requests.
         
-        Expected: POST, PUT, PATCH, DELETE should return 405 Method Not Allowed
+        Expected: GET, PUT, PATCH should work (200 OK)
+                  POST, DELETE should return 405 Method Not Allowed
         """
         url = reverse('user_profile')
         api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {student_access_token}')
         
-        # Test POST
+        # Test GET - should work
+        get_response = api_client.get(url)
+        assert get_response.status_code == status.HTTP_200_OK
+        
+        # Test PUT - should work (profile update)
+        put_response = api_client.put(url, {'phone_number': '+1234567890'}, format='json')
+        assert put_response.status_code == status.HTTP_200_OK
+        
+        # Test PATCH - should work (profile update)
+        patch_response = api_client.patch(url, {'university_name': 'Test University'}, format='json')
+        assert patch_response.status_code == status.HTTP_200_OK
+        
+        # Test POST - should NOT be allowed
         post_response = api_client.post(url, {})
         assert post_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
         
-        # Test PUT
-        put_response = api_client.put(url, {})
-        assert put_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-        
-        # Test PATCH
-        patch_response = api_client.patch(url, {})
-        assert patch_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-        
-        # Test DELETE
+        # Test DELETE - should NOT be allowed
         delete_response = api_client.delete(url)
         assert delete_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
     
