@@ -17,6 +17,13 @@ This marketplace platform facilitates connections between students requiring mov
 - **Furniture Marketplace** - Buy/sell furniture with transaction handling and escrow support
 - **Custom Validators** - Phone number and image validation with comprehensive error handling
 
+### Security Features
+
+- **Rate Limiting** - Scoped throttling for login (5/min) and refresh (10/min) endpoints
+- **Token Management** - Automatic token rotation and blacklisting on refresh
+- **Brute Force Protection** - Generic error messages and IP-based logging
+- **Concurrent Handling** - Robust database-level constraints for simultaneous registration attempts
+
 ### Technical Stack
 
 - **Django 5.2.8** - Latest stable Django framework
@@ -180,6 +187,8 @@ The test suite includes comprehensive tests covering:
 - ✅ Custom Authentication Backend
 - ✅ Email-based Login
 - ✅ Protected Route Access
+- ✅ Rate Limiting (Login & Refresh)
+- ✅ Concurrent Registration Handling
 
 **Current Status**: All tests passing ✅
 
@@ -353,6 +362,21 @@ Complete system for buying and selling furniture:
 - `sale_price` - Final price
 - `status` - Pending, Completed, Cancelled
 
+## 🔌 API Endpoints
+
+### Authentication
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/auth/register/` | Register a new user | No |
+| POST | `/api/auth/login/` | Login with email/password | No |
+| POST | `/api/token/` | Obtain access/refresh pair | No |
+| POST | `/api/token/refresh/` | Refresh access token (rotates refresh token) | No |
+| POST | `/api/token/verify/` | Verify token validity | No |
+| POST | `/api/token/blacklist/` | Blacklist a refresh token (Logout) | Yes |
+
+*Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -496,10 +520,10 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ MovingService & Booking models implemented
 - ✅ Review model implemented
 - ✅ Furniture marketplace models implemented
-- ✅ User authentication & authorization implemented (JWT)
+- ✅ Users authentication & authorization (JWT, Rotation, Throttling)
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
-- 🚧 REST API endpoints implementation
+- 🚧 Marketplace REST API endpoints implementation
 - 🚧 Frontend interface
 
 ## 🎯 Next Steps
