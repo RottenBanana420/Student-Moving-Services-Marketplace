@@ -349,7 +349,7 @@ class ReviewModelForeignKeyTests(TestCase):
         )
         
         self.assertEqual(review.booking, self.booking)
-        self.assertIn(review, self.booking.reviews.all())
+        self.assertEqual(review, self.booking.review)
     
     def test_cascade_deletion_when_reviewer_deleted(self):
         """Review should be deleted when reviewer is deleted."""

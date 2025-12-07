@@ -1113,11 +1113,10 @@ class Review(models.Model):
         help_text=_('User receiving the review')
     )
     
-    booking = models.ForeignKey(
+    booking = models.OneToOneField(
         Booking,
         on_delete=models.CASCADE,
-        related_name='reviews',
-        unique=True,
+        related_name='review',
         help_text=_('Booking being reviewed (one review per booking)')
     )
     
