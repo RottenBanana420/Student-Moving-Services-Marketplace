@@ -839,3 +839,271 @@ class ServiceCreateView(APIView):
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
 
+
+
+# ============================================================================
+# Service Listing View
+# ============================================================================
+
+class ServiceListView(APIView):
+    """
+    API endpoint for listing moving services with filtering, sorting, and pagination.
+    
+    Public endpoint - no authentication required.
+    
+    Features:
+    - Public access (AllowAny permission)
+    - Filtering by availability, price range, rating, university
+    - Sorting by price, rating, creation date
+    - Pagination with configurable page size
+    - Query optimization with select_related to prevent N+1 queries
+    
+    Query Parameters:
+    - available: Filter by availability status (true/false)
+    - min_price: Minimum price filter (decimal)
+    - max_price: Maximum price filter (decimal)
+    - min_rating: Minimum rating filter (decimal, 0-5)
+    - university: Filter by provider university (case-insensitive partial match)
+    - ordering: Sort field (price, -price, rating, -rating, date, -date)
+    - page: Page number for pagination
+    - page_size: Number of results per page (default: 20, max: 100)
+    
+    Returns:
+    - 200 OK: Paginated list of services with provider information
+    - 400 Bad Request: Invalid query parameters
+    - 404 Not Found: Invalid page number
+    """
+    
+    permission_classes = [AllowAny]
+    
+    def get(self, request, *args, **kwargs):
+        """
+        Handle GET request for service listing.
+        
+        Implements filtering, sorting, and pagination with query optimization.
+        """
+        from decimal import Decimal, InvalidOperation
+        from django.core.paginator import Paginator, EmptyPage
+        from core.models import MovingService
+        from core.serializers import ServiceListSerializer
+        
+        try:
+            # Start with all services, optimized with select_related
+            queryset = MovingService.objects.select_related('provider').all()
+            
+            # ================================================================
+            # Filtering
+            # ================================================================
+            
+            # Filter by availability
+            available = request.query_params.get('available')
+            if available is not None:
+                if available.lower() == 'true':
+                    queryset = queryset.filter(availability_status=True)
+                elif available.lower() == 'false':
+                    queryset = queryset.filter(availability_status=False)
+                else:
+                    return Response(
+                        {'error': 'Invalid value for "available". Must be "true" or "false".'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Filter by price range
+            min_price = request.query_params.get('min_price')
+            max_price = request.query_params.get('max_price')
+            
+            if min_price is not None:
+                try:
+                    min_price_decimal = Decimal(min_price)
+                    if min_price_decimal < 0:
+                        return Response(
+                            {'error': 'Minimum price cannot be negative.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    queryset = queryset.filter(base_price__gte=min_price_decimal)
+                except (ValueError, InvalidOperation):
+                    return Response(
+                        {'error': 'Invalid value for "min_price". Must be a valid number.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            if max_price is not None:
+                try:
+                    max_price_decimal = Decimal(max_price)
+                    if max_price_decimal < 0:
+                        return Response(
+                            {'error': 'Maximum price cannot be negative.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    queryset = queryset.filter(base_price__lte=max_price_decimal)
+                except (ValueError, InvalidOperation):
+                    return Response(
+                        {'error': 'Invalid value for "max_price". Must be a valid number.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Validate min_price <= max_price
+            if min_price is not None and max_price is not None:
+                try:
+                    if Decimal(min_price) > Decimal(max_price):
+                        return Response(
+                            {'error': 'Minimum price cannot be greater than maximum price.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                except (ValueError, InvalidOperation):
+                    pass  # Already handled above
+            
+            # Filter by minimum rating
+            min_rating = request.query_params.get('min_rating')
+            if min_rating is not None:
+                try:
+                    min_rating_decimal = Decimal(min_rating)
+                    if min_rating_decimal < 0 or min_rating_decimal > 5:
+                        return Response(
+                            {'error': 'Minimum rating must be between 0 and 5.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    queryset = queryset.filter(rating_average__gte=min_rating_decimal)
+                except (ValueError, InvalidOperation):
+                    return Response(
+                        {'error': 'Invalid value for "min_rating". Must be a valid number.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Filter by university (case-insensitive partial match)
+            university = request.query_params.get('university')
+            if university:
+                queryset = queryset.filter(provider__university_name__icontains=university)
+            
+            # ================================================================
+            # Sorting
+            # ================================================================
+            
+            ordering = request.query_params.get('ordering', None)
+            
+            # Define valid ordering fields
+            valid_orderings = {
+                'price': 'base_price',
+                '-price': '-base_price',
+                'rating': '-rating_average',  # Higher ratings first
+                '-rating': '-rating_average',  # Explicit descending
+                'date': '-created_at',  # Newest first
+                '-date': '-created_at',  # Explicit descending
+            }
+            
+            if ordering:
+                if ordering not in valid_orderings:
+                    return Response(
+                        {
+                            'error': f'Invalid ordering field "{ordering}". Valid options: {", ".join(valid_orderings.keys())}'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                queryset = queryset.order_by(valid_orderings[ordering])
+            else:
+                # Default sorting: rating (desc) then price (asc)
+                queryset = queryset.order_by('-rating_average', 'base_price')
+            
+            # ================================================================
+            # Pagination
+            # ================================================================
+            
+            # Get page size from query params (default: 20, max: 100)
+            try:
+                page_size = int(request.query_params.get('page_size', 20))
+                if page_size < 1:
+                    page_size = 20
+                elif page_size > 100:
+                    page_size = 100
+            except ValueError:
+                page_size = 20
+            
+            # Get page number
+            try:
+                page_number = int(request.query_params.get('page', 1))
+                if page_number < 1:
+                    page_number = 1
+            except ValueError:
+                page_number = 1
+            
+            # Create paginator
+            paginator = Paginator(queryset, page_size)
+            
+            try:
+                page_obj = paginator.page(page_number)
+            except EmptyPage:
+                return Response(
+                    {'error': f'Invalid page number. Page {page_number} does not exist.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Serialize the results
+            serializer = ServiceListSerializer(
+                page_obj.object_list,
+                many=True,
+                context={'request': request}
+            )
+            
+            # Build pagination response
+            response_data = {
+                'count': paginator.count,
+                'next': None,
+                'previous': None,
+                'results': serializer.data
+            }
+            
+            # Add next page URL
+            if page_obj.has_next():
+                next_page = page_obj.next_page_number()
+                response_data['next'] = request.build_absolute_uri(
+                    f"{request.path}?page={next_page}&page_size={page_size}"
+                )
+            
+            # Add previous page URL
+            if page_obj.has_previous():
+                prev_page = page_obj.previous_page_number()
+                response_data['previous'] = request.build_absolute_uri(
+                    f"{request.path}?page={prev_page}&page_size={page_size}"
+                )
+            
+            logger.info(
+                f"Service listing retrieved: {len(serializer.data)} services on page {page_number}"
+            )
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in service listing: {str(e)}")
+            return Response(
+                {'error': 'An error occurred while retrieving services.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    # Disallow other HTTP methods
+    def post(self, request, *args, **kwargs):
+        """POST method not allowed for listing endpoint."""
+        return Response(
+            {'error': 'Method not allowed. Use POST on /api/services/ for service creation.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )

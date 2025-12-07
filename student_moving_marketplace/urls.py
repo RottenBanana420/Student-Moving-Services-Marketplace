@@ -28,7 +28,8 @@ from core.views import (
     CustomTokenRefreshView,
     UserProfileView,
     ProviderVerificationView,
-    ServiceCreateView
+    ServiceCreateView,
+    ServiceListView
 )
 
 
@@ -43,6 +44,7 @@ urlpatterns = [
     path('api/auth/verify-provider/', ProviderVerificationView.as_view(), name='verify_provider'),
     
     # Service endpoints
+    path('api/services/list/', ServiceListView.as_view(), name='service_list'),
     path('api/services/', ServiceCreateView.as_view(), name='service_create'),
 
     

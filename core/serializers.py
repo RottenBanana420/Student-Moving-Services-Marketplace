@@ -667,3 +667,70 @@ class MovingServiceCreateSerializer(serializers.ModelSerializer):
         service = MovingService.objects.create(**validated_data)
         
         return service
+
+
+
+# ============================================================================
+# Service Listing Serializers
+# ============================================================================
+
+class ServiceProviderSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for provider information in service listings.
+    
+    Provides essential provider details without exposing sensitive information.
+    Optimized for use with select_related to prevent N+1 queries.
+    
+    Fields:
+    - id: Provider user ID
+    - email: Provider email address
+    - university_name: Provider's university
+    - is_verified: Provider verification status
+    """
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'university_name',
+            'is_verified'
+        ]
+        read_only_fields = fields
+
+
+class ServiceListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for service listing endpoint.
+    
+    Provides comprehensive service information including nested provider details.
+    Optimized for performance with select_related('provider') in the view.
+    
+    Fields:
+    - id: Service ID
+    - service_name: Name of the service
+    - description: Service description
+    - base_price: Base price for the service
+    - availability_status: Whether service is currently available
+    - rating_average: Average rating (0-5)
+    - total_reviews: Total number of reviews
+    - created_at: Service creation timestamp
+    - provider: Nested provider information (ServiceProviderSerializer)
+    """
+    
+    provider = ServiceProviderSerializer(read_only=True)
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('services').related_model
+        fields = [
+            'id',
+            'service_name',
+            'description',
+            'base_price',
+            'availability_status',
+            'rating_average',
+            'total_reviews',
+            'created_at',
+            'provider'
+        ]
+        read_only_fields = fields
