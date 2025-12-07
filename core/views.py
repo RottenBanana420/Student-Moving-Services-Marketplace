@@ -678,3 +678,164 @@ class ProviderVerificationView(APIView):
             {'detail': 'Method "DELETE" not allowed.'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+
+class ServiceCreateView(APIView):
+    """
+    API endpoint for creating moving services.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Requires verified provider status (IsVerifiedProvider)
+    - Auto-populates provider field from authenticated user
+    - Validates all input fields
+    - Initializes rating_average to 0.0 and total_reviews to 0
+    - Logs service creation for audit trail
+    
+    POST /api/services/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {
+        "service_name": "Premium Moving Service",
+        "description": "Professional moving service for students",
+        "base_price": "150.00",
+        "availability_status": true  # Optional, defaults to true
+    }
+    
+    Success response (201):
+    {
+        "id": 1,
+        "service_name": "Premium Moving Service",
+        "description": "Professional moving service for students",
+        "base_price": "150.00",
+        "availability_status": true,
+        "provider": 1,
+        "rating_average": "0.00",
+        "total_reviews": 0,
+        "created_at": "2025-12-07T12:00:00Z",
+        "updated_at": "2025-12-07T12:00:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: Non-provider or unverified provider attempting to create service
+    - 400: Invalid data (validation errors)
+    - 405: Method not allowed (only POST supported)
+    """
+    permission_classes = [AllowAny]  # Will check manually for better error messages
+    
+    def get_client_ip(self, request):
+        """
+        Get client IP address from request.
+        Handles proxy headers for accurate IP detection.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def post(self, request, *args, **kwargs):
+        """
+        Handle service creation request.
+        
+        Steps:
+        1. Verify user is authenticated
+        2. Verify user is a verified provider
+        3. Validate request data
+        4. Create service with auto-populated fields
+        5. Log creation action
+        6. Return created service details
+        """
+        # Step 1: Check authentication
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Step 2: Check if user is a verified provider
+        from .permissions import IsVerifiedProvider
+        permission = IsVerifiedProvider()
+        
+        if not permission.has_permission(request, self):
+            # Determine specific reason for denial
+            if not hasattr(request.user, 'user_type') or request.user.user_type != 'provider':
+                logger.warning(
+                    f"Non-provider user attempted service creation. "
+                    f"User: {request.user.email}, User Type: {getattr(request.user, 'user_type', 'unknown')}, "
+                    f"IP: {self.get_client_ip(request)}"
+                )
+                return Response(
+                    {'detail': 'You do not have permission to perform this action. Only verified providers can create services.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            elif not hasattr(request.user, 'is_verified') or not request.user.is_verified:
+                logger.warning(
+                    f"Unverified provider attempted service creation. "
+                    f"User: {request.user.email}, Is Verified: {getattr(request.user, 'is_verified', False)}, "
+                    f"IP: {self.get_client_ip(request)}"
+                )
+                return Response(
+                    {'detail': 'You do not have permission to perform this action. Only verified providers can create services.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # Step 3: Validate request data
+        from .serializers import MovingServiceCreateSerializer
+        serializer = MovingServiceCreateSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Step 4: Create service
+        service = serializer.save()
+        
+        # Step 5: Log creation action
+        logger.info(
+            f"Service created successfully. "
+            f"Service ID: {service.id}, Service Name: {service.service_name}, "
+            f"Provider: {request.user.email} (ID: {request.user.id}), "
+            f"IP: {self.get_client_ip(request)}"
+        )
+        
+        # Step 6: Return created service details
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    def get(self, request, *args, **kwargs):
+        """GET method not allowed."""
+        return Response(
+            {'detail': 'Method "GET" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'detail': 'Method "PUT" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'detail': 'Method "PATCH" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'detail': 'Method "DELETE" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+

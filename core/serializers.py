@@ -489,3 +489,181 @@ class ProviderVerificationResponseSerializer(serializers.ModelSerializer):
             'updated_at'
         ]
         read_only_fields = fields  # All fields are read-only for response
+
+
+class MovingServiceCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating moving services.
+    
+    Security features:
+    - Auto-populates provider from authenticated user
+    - Validates service name length and content
+    - Validates description is not empty
+    - Validates base price is positive and reasonable
+    - Initializes rating_average to 0.0
+    - Initializes total_reviews to 0
+    
+    Fields:
+    - service_name: Required, 1-200 characters, cannot be whitespace only
+    - description: Required, cannot be empty or whitespace only
+    - base_price: Required, must be positive and < 100,000
+    - availability_status: Optional, defaults to True
+    
+    Read-only fields (auto-populated):
+    - id: Auto-generated
+    - provider: Set from request.user
+    - rating_average: Initialized to 0.0
+    - total_reviews: Initialized to 0
+    - created_at: Auto-generated
+    - updated_at: Auto-generated
+    """
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('services').related_model
+        fields = [
+            'id',
+            'service_name',
+            'description',
+            'base_price',
+            'availability_status',
+            'provider',
+            'rating_average',
+            'total_reviews',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['id', 'provider', 'rating_average', 'total_reviews', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'service_name': {'required': True},
+            'description': {'required': True},
+            'base_price': {'required': True},
+            'availability_status': {'required': False, 'default': True},
+        }
+    
+    def validate_service_name(self, value):
+        """
+        Validate service name is not empty and within length limits.
+        
+        Args:
+            value: Service name string
+            
+        Returns:
+            str: Validated service name
+            
+        Raises:
+            ValidationError: If service name is empty or too long
+        """
+        # Check if empty or whitespace only
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Service name cannot be empty or whitespace only."
+            )
+        
+        # Check max length (200 characters)
+        if len(value) > 200:
+            raise serializers.ValidationError(
+                f"Service name cannot exceed 200 characters. Current length: {len(value)}."
+            )
+        
+        return value.strip()
+    
+    def validate_description(self, value):
+        """
+        Validate description is not empty.
+        
+        Args:
+            value: Description string
+            
+        Returns:
+            str: Validated description
+            
+        Raises:
+            ValidationError: If description is empty
+        """
+        # Check if empty or whitespace only
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Description cannot be empty or whitespace only."
+            )
+        
+        return value.strip()
+    
+    def validate_base_price(self, value):
+        """
+        Validate base price is positive and reasonable.
+        
+        Args:
+            value: Base price decimal
+            
+        Returns:
+            Decimal: Validated base price
+            
+        Raises:
+            ValidationError: If price is not positive or too high
+        """
+        from decimal import Decimal
+        
+        # Convert to Decimal if string
+        if isinstance(value, str):
+            try:
+                value = Decimal(value)
+            except:
+                raise serializers.ValidationError(
+                    "Base price must be a valid number."
+                )
+        
+        # Check if positive
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Base price must be greater than 0."
+            )
+        
+        # Check if reasonable (less than 100,000)
+        if value >= 100000:
+            raise serializers.ValidationError(
+                "Base price must be less than 100,000."
+            )
+        
+        return value
+    
+    def create(self, validated_data):
+        """
+        Create service with auto-populated fields.
+        
+        Auto-populates:
+        - provider: From request.user
+        - rating_average: 0.0
+        - total_reviews: 0
+        
+        Args:
+            validated_data: Validated data from serializer
+            
+        Returns:
+            MovingService: Created service instance
+        """
+        from decimal import Decimal
+        from core.models import MovingService
+        
+        # Get authenticated user from context
+        request = self.context.get('request')
+        if not request or not request.user:
+            raise serializers.ValidationError(
+                "Authentication required to create service."
+            )
+        
+        # Auto-populate provider
+        validated_data['provider'] = request.user
+        
+        # Auto-populate rating_average and total_reviews
+        validated_data['rating_average'] = Decimal('0.00')
+        validated_data['total_reviews'] = 0
+        
+        # Set default availability_status if not provided
+        if 'availability_status' not in validated_data:
+            validated_data['availability_status'] = True
+        
+        # Create the service
+        # The model's save() method will call full_clean() for validation
+        service = MovingService.objects.create(**validated_data)
+        
+        return service
