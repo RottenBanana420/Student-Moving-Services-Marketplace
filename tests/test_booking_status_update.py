@@ -20,7 +20,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -553,44 +553,6 @@ class BookingStatusUpdateTestCase(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
     
-    def test_concurrent_status_updates(self):
-        """Test that concurrent status updates are handled safely."""
-        booking = self._create_booking(self.student_user, self.service)
-        url = f'/api/bookings/{booking.id}/status/'
-        
-        results = []
-        
-        def update_status(token, new_status):
-            """Helper function to update status in a thread."""
-            client = APIClient()
-            client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-            response = client.put(url, {'status': new_status}, format='json')
-            results.append(response.status_code)
-        
-        # Create threads for concurrent updates
-        thread1 = threading.Thread(
-            target=update_status, 
-            args=(self.provider_token, 'confirmed')
-        )
-        thread2 = threading.Thread(
-            target=update_status, 
-            args=(self.student_token, 'cancelled')
-        )
-        
-        # Start both threads
-        thread1.start()
-        thread2.start()
-        
-        # Wait for completion
-        thread1.join()
-        thread2.join()
-        
-        # At least one should succeed
-        self.assertIn(status.HTTP_200_OK, results)
-        
-        # Verify booking is in a valid state
-        booking.refresh_from_db()
-        self.assertIn(booking.status, ['confirmed', 'cancelled'])
     
     def test_missing_status_field_returns_400(self):
         """Test that missing status field returns validation error."""
@@ -677,3 +639,95 @@ class BookingStatusUpdateTestCase(TestCase):
         updated_at = parse_datetime(response.data['updated_at'])
         time_diff = timezone.now() - updated_at
         self.assertLess(time_diff.total_seconds(), 60)
+
+class BookingStatusUpdateConcurrencyTests(TransactionTestCase):
+    """Test suite for concurrent booking status updates."""
+    
+    def setUp(self):
+        """Set up test fixtures for each test."""
+        self.client = APIClient()
+        
+        # Create student user
+        self.student_user = User.objects.create_user(
+            username='student_conc',
+            email='student_conc@example.com',
+            password='testpass123',
+            user_type='student'
+        )
+        
+        # Create provider user
+        self.provider_user = User.objects.create_user(
+            username='provider_conc',
+            email='provider_conc@example.com',
+            password='testpass123',
+            user_type='provider',
+            is_verified=True
+        )
+        
+        # Create moving service
+        self.service = MovingService.objects.create(
+            provider=self.provider_user,
+            service_name='Test Moving Service Conc',
+            description='Test description',
+            base_price=Decimal('100.00'),
+            availability_status=True
+        )
+        
+        # Generate JWT tokens
+        self.student_token = str(RefreshToken.for_user(self.student_user).access_token)
+        self.provider_token = str(RefreshToken.for_user(self.provider_user).access_token)
+    
+    def _create_booking(self, student, service, booking_date=None, status='pending'):
+        """Helper method to create a booking."""
+        if booking_date is None:
+            booking_date = timezone.now() + timedelta(days=7)
+        
+        return Booking.objects.create(
+            student=student,
+            provider=service.provider,
+            service=service,
+            booking_date=booking_date,
+            pickup_location='123 Pickup St',
+            dropoff_location='456 Dropoff Ave',
+            status=status,
+            total_price=service.base_price
+        )
+
+    def test_concurrent_status_updates(self):
+        """Test that concurrent status updates are handled safely."""
+        booking = self._create_booking(self.student_user, self.service)
+        url = f'/api/bookings/{booking.id}/status/'
+        
+        results = []
+        
+        def update_status(token, new_status):
+            """Helper function to update status in a thread."""
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+            response = client.put(url, {'status': new_status}, format='json')
+            results.append(response.status_code)
+        
+        # Create threads for concurrent updates
+        thread1 = threading.Thread(
+            target=update_status, 
+            args=(self.provider_token, 'confirmed')
+        )
+        thread2 = threading.Thread(
+            target=update_status, 
+            args=(self.student_token, 'cancelled')
+        )
+        
+        # Start both threads
+        thread1.start()
+        thread2.start()
+        
+        # Wait for completion
+        thread1.join()
+        thread2.join()
+        
+        # At least one should succeed
+        self.assertIn(status.HTTP_200_OK, results)
+        
+        # Verify booking is in a valid state
+        booking.refresh_from_db()
+        self.assertIn(booking.status, ['confirmed', 'cancelled'])
