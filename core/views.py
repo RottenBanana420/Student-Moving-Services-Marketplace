@@ -1107,3 +1107,138 @@ class ServiceListView(APIView):
             {'error': 'Method not allowed.'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+
+# ============================================================================
+# Service Detail View
+# ============================================================================
+
+class ServiceDetailView(generics.RetrieveAPIView):
+    """
+    API endpoint for retrieving detailed information about a single moving service.
+    
+    Public endpoint - no authentication required.
+    
+    Features:
+    - Public access (AllowAny permission)
+    - Complete service information
+    - Detailed provider information with rating summary
+    - Recent reviews (limited to 10 most recent)
+    - Service-specific rating statistics
+    - Rating distribution (count of each star rating)
+    - Query optimization with select_related and prefetch_related
+    
+    URL Pattern:
+    - GET /api/services/<id>/
+    
+    Returns:
+    - 200 OK: Complete service details with nested provider and reviews
+    - 404 Not Found: Service with given ID doesn't exist
+    
+    Response Structure:
+    {
+        "id": 1,
+        "service_name": "Premium Moving Service",
+        "description": "Professional moving service...",
+        "base_price": "150.00",
+        "availability_status": true,
+        "created_at": "2025-12-07T12:00:00Z",
+        "updated_at": "2025-12-07T12:00:00Z",
+        "provider": {
+            "id": 1,
+            "email": "provider@example.com",
+            "phone_number": "+1234567890",
+            "university_name": "Test University",
+            "is_verified": true,
+            "profile_image_url": "http://...",
+            "provider_rating_average": "4.50"
+        },
+        "recent_reviews": [
+            {
+                "id": 1,
+                "reviewer_name": "student@example.com",
+                "rating": 5,
+                "comment": "Excellent service!",
+                "created_at": "2025-12-07T10:00:00Z"
+            }
+        ],
+        "rating_average": "4.50",
+        "total_reviews": 10,
+        "rating_distribution": {
+            "1": 0,
+            "2": 1,
+            "3": 2,
+            "4": 3,
+            "5": 4
+        }
+    }
+    """
+    
+    permission_classes = [AllowAny]
+    lookup_field = 'pk'
+    
+    def get_serializer_class(self):
+        """Return the serializer class for service detail."""
+        from core.serializers import ServiceDetailSerializer
+        return ServiceDetailSerializer
+    
+    def get_queryset(self):
+        """
+        Get queryset with optimized query loading.
+        
+        Optimizations:
+        - select_related('provider'): Fetch provider in single query
+        - prefetch_related('bookings__review'): Prefetch reviews through bookings
+        - This prevents N+1 query problems
+        
+        Returns:
+            QuerySet: Optimized MovingService queryset
+        """
+        from core.models import MovingService, Review
+        from django.db.models import Prefetch
+        
+        # Optimize queries to prevent N+1 problems
+        queryset = MovingService.objects.select_related(
+            'provider'  # Fetch provider in single query (ForeignKey)
+        ).prefetch_related(
+            # Prefetch reviews through bookings
+            Prefetch(
+                'bookings__review',
+                queryset=Review.objects.select_related('reviewer').order_by('-created_at')
+            )
+        )
+        
+        return queryset
+    
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve service detail with comprehensive error handling.
+        
+        Args:
+            request: HTTP request
+            *args: Positional arguments
+            **kwargs: Keyword arguments (includes 'pk')
+            
+        Returns:
+            Response: Service detail data or error
+        """
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, context={'request': request})
+            
+            logger.info(
+                f"Service detail retrieved: Service ID {instance.id}, "
+                f"Service Name: {instance.service_name}"
+            )
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            # Log unexpected errors
+            logger.error(
+                f"Error retrieving service detail: {str(e)}, "
+                f"Service ID: {kwargs.get('pk', 'unknown')}"
+            )
+            # Re-raise to let DRF handle it (will return 404 for DoesNotExist)
+            raise
+

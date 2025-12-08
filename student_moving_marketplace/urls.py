@@ -29,7 +29,8 @@ from core.views import (
     UserProfileView,
     ProviderVerificationView,
     ServiceCreateView,
-    ServiceListView
+    ServiceListView,
+    ServiceDetailView
 )
 
 
@@ -45,7 +46,9 @@ urlpatterns = [
     
     # Service endpoints
     path('api/services/list/', ServiceListView.as_view(), name='service_list'),
+    path('api/services/<int:pk>/', ServiceDetailView.as_view(), name='service_detail'),
     path('api/services/', ServiceCreateView.as_view(), name='service_create'),
+
 
     
     # JWT Authentication endpoints

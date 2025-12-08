@@ -734,3 +734,269 @@ class ServiceListSerializer(serializers.ModelSerializer):
             'provider'
         ]
         read_only_fields = fields
+
+
+# ============================================================================
+# Service Detail Serializers
+# ============================================================================
+
+class ReviewSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for displaying review information in service details.
+    
+    Provides review details without exposing sensitive reviewer information.
+    Shows reviewer's email as the reviewer name for transparency.
+    
+    Fields:
+    - id: Review ID
+    - reviewer_name: Reviewer's email address
+    - rating: Rating from 1-5
+    - comment: Review comment text
+    - created_at: Review creation timestamp
+    """
+    
+    reviewer_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('reviews_given').related_model
+        fields = [
+            'id',
+            'reviewer_name',
+            'rating',
+            'comment',
+            'created_at'
+        ]
+        read_only_fields = fields
+    
+    def get_reviewer_name(self, obj):
+        """
+        Get reviewer's email as their display name.
+        
+        Args:
+            obj: Review instance
+            
+        Returns:
+            str: Reviewer's email address
+        """
+        return obj.reviewer.email if obj.reviewer else 'Anonymous'
+
+
+class DetailedProviderSerializer(serializers.ModelSerializer):
+    """
+    Extended provider serializer with rating summary for service detail view.
+    
+    Includes all provider information plus aggregated rating across all their services.
+    Optimized to work with prefetched data to avoid N+1 queries.
+    
+    Fields:
+    - id: Provider user ID
+    - email: Provider email address
+    - phone_number: Provider phone number
+    - university_name: Provider's university
+    - is_verified: Provider verification status
+    - profile_image_url: Full URL to profile image (null if not uploaded)
+    - provider_rating_average: Average rating across all provider's services
+    """
+    
+    profile_image_url = serializers.SerializerMethodField()
+    provider_rating_average = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'phone_number',
+            'university_name',
+            'is_verified',
+            'profile_image_url',
+            'provider_rating_average'
+        ]
+        read_only_fields = fields
+    
+    def get_profile_image_url(self, obj):
+        """
+        Generate full URL for profile image.
+        
+        Args:
+            obj: User instance
+            
+        Returns:
+            str: Full URL to profile image, or None if no image uploaded
+        """
+        if obj.profile_image:
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.profile_image.url)
+            else:
+                return obj.profile_image.url
+        return None
+    
+    def get_provider_rating_average(self, obj):
+        """
+        Calculate average rating across all provider's services.
+        
+        Aggregates reviews from all bookings for all services offered by this provider.
+        Uses prefetched data to avoid N+1 queries.
+        
+        Args:
+            obj: User instance (provider)
+            
+        Returns:
+            Decimal: Average rating (0.00 to 5.00)
+        """
+        from decimal import Decimal
+        from django.db.models import Avg
+        from core.models import Review
+        
+        # Get all reviews where this provider is the reviewee
+        # This includes reviews from all their services
+        avg_rating = Review.objects.filter(
+            reviewee=obj
+        ).aggregate(Avg('rating'))['rating__avg']
+        
+        if avg_rating is not None:
+            return Decimal(str(avg_rating)).quantize(Decimal('0.01'))
+        return Decimal('0.00')
+
+
+class ServiceDetailSerializer(serializers.ModelSerializer):
+    """
+    Comprehensive serializer for service detail endpoint.
+    
+    Provides complete service information including:
+    - All service fields
+    - Detailed provider information with rating summary
+    - Recent reviews (limited to 10 most recent)
+    - Service-specific rating statistics
+    - Rating distribution (count of each star rating)
+    
+    Optimized for performance with select_related and prefetch_related in view.
+    
+    Fields:
+    - id: Service ID
+    - service_name: Name of the service
+    - description: Service description
+    - base_price: Base price for the service
+    - availability_status: Whether service is currently available
+    - created_at: Service creation timestamp
+    - updated_at: Last update timestamp
+    - provider: Nested detailed provider information
+    - recent_reviews: List of recent reviews (max 10)
+    - rating_average: Service-specific average rating
+    - total_reviews: Service-specific total review count
+    - rating_distribution: Dictionary with counts for each star rating (1-5)
+    """
+    
+    provider = DetailedProviderSerializer(read_only=True)
+    recent_reviews = serializers.SerializerMethodField()
+    rating_average = serializers.SerializerMethodField()
+    total_reviews = serializers.SerializerMethodField()
+    rating_distribution = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('services').related_model
+        fields = [
+            'id',
+            'service_name',
+            'description',
+            'base_price',
+            'availability_status',
+            'created_at',
+            'updated_at',
+            'provider',
+            'recent_reviews',
+            'rating_average',
+            'total_reviews',
+            'rating_distribution'
+        ]
+        read_only_fields = fields
+    
+    def get_recent_reviews(self, obj):
+        """
+        Get recent reviews for this service (max 10, most recent first).
+        
+        Reviews are fetched through the booking relationship since Review
+        has a OneToOneField with Booking, not MovingService.
+        
+        Args:
+            obj: MovingService instance
+            
+        Returns:
+            list: Serialized review data
+        """
+        from core.models import Review
+        
+        # Get reviews through bookings for this service
+        reviews = Review.objects.filter(
+            booking__service=obj
+        ).select_related('reviewer').order_by('-created_at')[:10]
+        
+        return ReviewSerializer(reviews, many=True, context=self.context).data
+    
+    def get_rating_average(self, obj):
+        """
+        Calculate average rating for this specific service.
+        
+        Args:
+            obj: MovingService instance
+            
+        Returns:
+            Decimal: Average rating (0.00 to 5.00)
+        """
+        from decimal import Decimal
+        from django.db.models import Avg
+        from core.models import Review
+        
+        avg_rating = Review.objects.filter(
+            booking__service=obj
+        ).aggregate(Avg('rating'))['rating__avg']
+        
+        if avg_rating is not None:
+            return Decimal(str(avg_rating)).quantize(Decimal('0.01'))
+        return Decimal('0.00')
+    
+    def get_total_reviews(self, obj):
+        """
+        Get total number of reviews for this specific service.
+        
+        Args:
+            obj: MovingService instance
+            
+        Returns:
+            int: Total review count
+        """
+        from core.models import Review
+        
+        return Review.objects.filter(booking__service=obj).count()
+    
+    def get_rating_distribution(self, obj):
+        """
+        Calculate rating distribution (count of each star rating).
+        
+        Returns a dictionary with counts for ratings 1-5.
+        
+        Args:
+            obj: MovingService instance
+            
+        Returns:
+            dict: Rating distribution, e.g. {'1': 0, '2': 1, '3': 2, '4': 3, '5': 4}
+        """
+        from django.db.models import Count
+        from core.models import Review
+        
+        # Get count of each rating value
+        distribution = Review.objects.filter(
+            booking__service=obj
+        ).values('rating').annotate(count=Count('rating'))
+        
+        # Initialize all ratings to 0
+        result = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0}
+        
+        # Fill in actual counts
+        for item in distribution:
+            rating_str = str(item['rating'])
+            result[rating_str] = item['count']
+        
+        return result
+
