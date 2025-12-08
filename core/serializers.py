@@ -669,6 +669,114 @@ class MovingServiceCreateSerializer(serializers.ModelSerializer):
         return service
 
 
+# ============================================================================
+# Booking Status Update Serializers
+# ============================================================================
+
+class BookingStatusUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for updating booking status.
+    
+    Security features:
+    - Validates status is in allowed choices
+    - Enforces state machine transition rules
+    - Validates business logic (completion date check)
+    - Logs status changes with timestamps
+    
+    Fields:
+    - status: Required, must be valid choice (pending, confirmed, completed, cancelled)
+    
+    Validation:
+    - Calls booking.can_transition_to() for state machine validation
+    - Validates completion date for 'completed' status
+    - Returns descriptive error messages for invalid transitions
+    """
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('student_bookings').related_model
+        fields = ['status']
+        extra_kwargs = {
+            'status': {'required': True},
+        }
+    
+    def validate_status(self, value):
+        """
+        Validate status is a valid choice.
+        
+        Args:
+            value: Status value
+            
+        Returns:
+            str: Validated status
+            
+        Raises:
+            ValidationError: If status is not a valid choice
+        """
+        valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
+        
+        if value not in valid_statuses:
+            raise serializers.ValidationError(
+                f"Invalid status. Must be one of: {', '.join(valid_statuses)}."
+            )
+        
+        return value
+    
+    def validate(self, attrs):
+        """
+        Object-level validation for status transitions.
+        
+        Validates:
+        - State machine transition rules
+        - Business logic (completion date)
+        
+        Args:
+            attrs: Validated data
+            
+        Returns:
+            dict: Validated data
+            
+        Raises:
+            ValidationError: If transition is invalid
+        """
+        from django.utils import timezone
+        
+        new_status = attrs.get('status')
+        booking = self.instance
+        
+        if not booking:
+            raise serializers.ValidationError(
+                "Booking instance is required for status update."
+            )
+        
+        # Use the state machine validation method
+        is_valid, error_message = booking.can_transition_to(new_status)
+        
+        if not is_valid:
+            raise serializers.ValidationError({
+                'status': error_message
+            })
+        
+        return attrs
+    
+    def update(self, instance, validated_data):
+        """
+        Update booking status.
+        
+        Args:
+            instance: Booking instance
+            validated_data: Validated data
+            
+        Returns:
+            Booking: Updated booking instance
+        """
+        # Update status
+        instance.status = validated_data.get('status')
+        
+        # Save with update_fields to trigger updated_at
+        instance.save(update_fields=['status', 'updated_at'])
+        
+        return instance
+
 
 # ============================================================================
 # Service Listing Serializers

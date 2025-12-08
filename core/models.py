@@ -565,6 +565,73 @@ class Booking(models.Model):
                 # New instance, no validation needed
                 pass
     
+    def can_transition_to(self, new_status, current_time=None):
+        """
+        Validate if booking can transition to new status.
+        
+        Implements state machine logic for booking status transitions.
+        
+        Valid transitions:
+        - pending -> confirmed (provider only)
+        - pending -> cancelled (student or provider)
+        - confirmed -> completed (provider only, after booking_date)
+        - confirmed -> cancelled (student or provider)
+        - completed -> (no transitions - terminal state)
+        - cancelled -> (no transitions - terminal state)
+        
+        Args:
+            new_status: Target status to transition to
+            current_time: Current time for validation (defaults to timezone.now())
+            
+        Returns:
+            tuple: (is_valid: bool, error_message: str or None)
+        """
+        from django.utils import timezone
+        
+        if current_time is None:
+            current_time = timezone.now()
+        
+        current_status = self.status
+        
+        # No transition needed
+        if current_status == new_status:
+            return True, None
+        
+        # Terminal states cannot be changed
+        if current_status == 'completed':
+            return False, 'Cannot modify a completed booking.'
+        
+        if current_status == 'cancelled':
+            return False, 'Cannot modify a cancelled booking.'
+        
+        # Pending transitions
+        if current_status == 'pending':
+            if new_status == 'confirmed':
+                return True, None
+            elif new_status == 'cancelled':
+                return True, None
+            elif new_status == 'completed':
+                return False, 'Cannot transition from pending to completed. Must confirm first.'
+            else:
+                return False, f'Invalid status transition from {current_status} to {new_status}.'
+        
+        # Confirmed transitions
+        if current_status == 'confirmed':
+            if new_status == 'completed':
+                # Business rule: Cannot complete before booking date
+                if current_time < self.booking_date:
+                    return False, 'Cannot complete booking before the scheduled booking date.'
+                return True, None
+            elif new_status == 'cancelled':
+                return True, None
+            elif new_status == 'pending':
+                return False, 'Cannot transition from confirmed back to pending.'
+            else:
+                return False, f'Invalid status transition from {current_status} to {new_status}.'
+        
+        # Default: invalid transition
+        return False, f'Invalid status transition from {current_status} to {new_status}.'
+    
     def save(self, *args, **kwargs):
         """
         Override save to ensure validation.

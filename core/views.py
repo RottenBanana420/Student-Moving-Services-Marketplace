@@ -1475,6 +1475,190 @@ class BookingCreateView(APIView):
 
 
 # ============================================================================
+# Booking Status Update View
+# ============================================================================
+
+class BookingStatusUpdateView(APIView):
+    """
+    API endpoint for updating booking status.
+    
+    Security features:
+    - Requires JWT authentication
+    - Requires object-level permissions (CanUpdateBookingStatus)
+    - Enforces state machine transition rules
+    - Validates business logic (completion date)
+    - Logs all status changes for audit trail
+    - Handles concurrent updates with database locking
+    
+    PUT /api/bookings/<id>/status/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {"status": "confirmed"}
+    
+    Success response (200):
+    {
+        "id": 1,
+        "student": {...},
+        "provider": {...},
+        "service": {...},
+        "booking_date": "2025-12-15T10:00:00Z",
+        "pickup_location": "123 Pickup St",
+        "dropoff_location": "456 Dropoff Ave",
+        "status": "confirmed",
+        "total_price": "100.00",
+        "created_at": "2025-12-08T10:00:00Z",
+        "updated_at": "2025-12-08T14:30:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: User doesn't have permission to update this booking
+    - 404: Booking not found
+    - 400: Invalid status transition or validation error
+    """
+    permission_classes = [AllowAny]  # Will check manually for better error messages
+    
+    def get_client_ip(self, request):
+        """
+        Get client IP address from request.
+        Handles proxy headers for accurate IP detection.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def put(self, request, *args, **kwargs):
+        """
+        Handle booking status update request.
+        
+        Steps:
+        1. Verify user is authenticated
+        2. Retrieve booking by ID (404 if not found)
+        3. Check object-level permissions (403 if denied)
+        4. Validate status transition
+        5. Update booking status
+        6. Log status change
+        7. Return updated booking details
+        """
+        from django.db import transaction
+        from core.models import Booking
+        from core.serializers import BookingStatusUpdateSerializer, BookingCreateSerializer
+        from core.permissions import CanUpdateBookingStatus
+        
+        # Step 1: Check authentication
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Step 2: Retrieve booking
+        booking_id = kwargs.get('pk')
+        try:
+            # Use select_for_update to lock the row for concurrent updates
+            with transaction.atomic():
+                booking = Booking.objects.select_for_update().select_related(
+                    'student', 'provider', 'service'
+                ).get(pk=booking_id)
+                
+                # Step 3: Check object-level permissions
+                permission = CanUpdateBookingStatus()
+                if not permission.has_object_permission(request, self, booking):
+                    logger.warning(
+                        f"Unauthorized booking status update attempt. "
+                        f"Booking ID: {booking_id}, "
+                        f"User: {request.user.email} (ID: {request.user.id}), "
+                        f"IP: {self.get_client_ip(request)}"
+                    )
+                    return Response(
+                        {'detail': permission.message},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                
+                # Step 4 & 5: Validate and update status
+                serializer = BookingStatusUpdateSerializer(
+                    booking,
+                    data=request.data,
+                    partial=False
+                )
+                
+                if not serializer.is_valid():
+                    return Response(
+                        serializer.errors,
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Save the updated booking
+                old_status = booking.status
+                updated_booking = serializer.save()
+                new_status = updated_booking.status
+                
+                # Step 6: Log status change
+                logger.info(
+                    f"Booking status updated. "
+                    f"Booking ID: {booking_id}, "
+                    f"Old Status: {old_status}, "
+                    f"New Status: {new_status}, "
+                    f"User: {request.user.email} (ID: {request.user.id}), "
+                    f"IP: {self.get_client_ip(request)}"
+                )
+                
+                # Step 7: Return updated booking details
+                # Use BookingCreateSerializer for complete response
+                response_serializer = BookingCreateSerializer(
+                    updated_booking,
+                    context={'request': request}
+                )
+                
+                return Response(
+                    response_serializer.data,
+                    status=status.HTTP_200_OK
+                )
+                
+        except Booking.DoesNotExist:
+            logger.warning(
+                f"Booking status update attempted for non-existent booking. "
+                f"Booking ID: {booking_id}, "
+                f"User: {request.user.email} (ID: {request.user.id}), "
+                f"IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': f'Booking with ID {booking_id} does not exist.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    def get(self, request, *args, **kwargs):
+        """GET method not allowed."""
+        return Response(
+            {'detail': 'Method "GET" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def post(self, request, *args, **kwargs):
+        """POST method not allowed."""
+        return Response(
+            {'detail': 'Method "POST" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'detail': 'Method "PATCH" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'detail': 'Method "DELETE" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+
+
+# ============================================================================
 # Booking Calendar View
 # ============================================================================
 
