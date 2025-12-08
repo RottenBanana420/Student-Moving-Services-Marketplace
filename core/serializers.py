@@ -1232,3 +1232,123 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         
         return booking
 
+
+# ============================================================================
+# Booking Calendar Serializers
+# ============================================================================
+
+class BookingCalendarSerializer(serializers.ModelSerializer):
+    """
+    Serializer for booking information in calendar view.
+    
+    Provides comprehensive booking details optimized for calendar display.
+    Works with select_related to prevent N+1 queries.
+    
+    Fields:
+    - id: Booking ID
+    - service_name: Name of the booked service
+    - service_id: ID of the booked service
+    - student_email: Email of the student who made the booking
+    - student_id: ID of the student
+    - provider_email: Email of the service provider
+    - provider_id: ID of the provider
+    - booking_date: Date and time of the booking
+    - status: Booking status (pending, confirmed, completed, cancelled)
+    - pickup_location: Pickup address
+    - dropoff_location: Dropoff address
+    - total_price: Total price for the booking
+    """
+    
+    service_name = serializers.SerializerMethodField()
+    service_id = serializers.SerializerMethodField()
+    student_email = serializers.SerializerMethodField()
+    student_id = serializers.SerializerMethodField()
+    provider_email = serializers.SerializerMethodField()
+    provider_id = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('student_bookings').related_model
+        fields = [
+            'id',
+            'service_name',
+            'service_id',
+            'student_email',
+            'student_id',
+            'provider_email',
+            'provider_id',
+            'booking_date',
+            'status',
+            'pickup_location',
+            'dropoff_location',
+            'total_price'
+        ]
+        read_only_fields = fields
+    
+    def get_service_name(self, obj):
+        """Get service name from related service."""
+        return obj.service.service_name if obj.service else None
+    
+    def get_service_id(self, obj):
+        """Get service ID from related service."""
+        return obj.service.id if obj.service else None
+    
+    def get_student_email(self, obj):
+        """Get student email from related student."""
+        return obj.student.email if obj.student else None
+    
+    def get_student_id(self, obj):
+        """Get student ID from related student."""
+        return obj.student.id if obj.student else None
+    
+    def get_provider_email(self, obj):
+        """Get provider email from related provider."""
+        return obj.provider.email if obj.provider else None
+    
+    def get_provider_id(self, obj):
+        """Get provider ID from related provider."""
+        return obj.provider.id if obj.provider else None
+
+
+class CalendarDaySerializer(serializers.Serializer):
+    """
+    Serializer for a single day's calendar data.
+    
+    Organizes bookings and availability information for one day.
+    
+    Fields:
+    - date: Date string (YYYY-MM-DD)
+    - bookings: List of BookingCalendarSerializer instances
+    - available_slots: List of available time slots (strings)
+    - is_fully_booked: Boolean indicating if all slots are occupied
+    """
+    
+    date = serializers.DateField()
+    bookings = BookingCalendarSerializer(many=True, read_only=True)
+    available_slots = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True
+    )
+    is_fully_booked = serializers.BooleanField(read_only=True)
+
+
+class CalendarResponseSerializer(serializers.Serializer):
+    """
+    Top-level serializer for calendar response.
+    
+    Provides metadata about the calendar request and organized day data.
+    
+    Fields:
+    - start_date: Start of date range (YYYY-MM-DD)
+    - end_date: End of date range (YYYY-MM-DD)
+    - provider_id: Provider filter (null if not filtered)
+    - service_id: Service filter (null if not filtered)
+    - status_filter: Status filter (comma-separated string)
+    - days: List of CalendarDaySerializer instances
+    """
+    
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    provider_id = serializers.IntegerField(allow_null=True, required=False)
+    service_id = serializers.IntegerField(allow_null=True, required=False)
+    status_filter = serializers.CharField(allow_null=True, required=False)
+    days = CalendarDaySerializer(many=True, read_only=True)

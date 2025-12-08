@@ -1473,3 +1473,313 @@ class BookingCreateView(APIView):
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
 
+
+# ============================================================================
+# Booking Calendar View
+# ============================================================================
+
+class BookingCalendarView(APIView):
+    """
+    API endpoint for viewing booking calendar with availability.
+    
+    Public endpoint - no authentication required (AllowAny).
+    
+    Features:
+    - Date range filtering (required: start_date, end_date)
+    - Provider filtering (optional: provider_id)
+    - Service filtering (optional: service_id)
+    - Status filtering (optional: status, defaults to 'pending,confirmed')
+    - Available time slot calculation
+    - Query optimization with select_related
+    - 90-day maximum date range limit
+    
+    GET /api/bookings/calendar/
+    Query Parameters:
+    - start_date (required): Start of date range (YYYY-MM-DD or ISO 8601)
+    - end_date (required): End of date range (YYYY-MM-DD or ISO 8601)
+    - provider_id (optional): Filter by specific provider
+    - service_id (optional): Filter by specific service
+    - status (optional): Filter by booking status (comma-separated: pending,confirmed,completed,cancelled)
+    
+    Returns:
+    - 200 OK: Calendar data organized by date
+    - 400 Bad Request: Missing or invalid parameters
+    """
+    
+    permission_classes = [AllowAny]
+    
+    def get(self, request, *args, **kwargs):
+        """
+        Handle GET request for booking calendar.
+        
+        Implements date range filtering, provider/service/status filtering,
+        and available slot calculation with query optimization.
+        """
+        from datetime import datetime, timedelta, time
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date
+        from core.models import Booking, User, MovingService
+        from collections import defaultdict
+        from itertools import groupby
+        from operator import attrgetter
+        
+        try:
+            # ================================================================
+            # Step 1: Validate and parse date range parameters
+            # ================================================================
+            
+            start_date_str = request.query_params.get('start_date')
+            end_date_str = request.query_params.get('end_date')
+            
+            # Check required parameters
+            if not start_date_str:
+                return Response(
+                    {'error': 'start_date parameter is required (format: YYYY-MM-DD)'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not end_date_str:
+                return Response(
+                    {'error': 'end_date parameter is required (format: YYYY-MM-DD)'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse dates
+            start_date = parse_date(start_date_str)
+            end_date = parse_date(end_date_str)
+            
+            if not start_date:
+                return Response(
+                    {'error': f'Invalid start_date format: {start_date_str}. Use YYYY-MM-DD format.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not end_date:
+                return Response(
+                    {'error': f'Invalid end_date format: {end_date_str}. Use YYYY-MM-DD format.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate date range
+            if end_date < start_date:
+                return Response(
+                    {'error': 'end_date must be greater than or equal to start_date'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Limit date range to 90 days to prevent performance issues
+            date_range_days = (end_date - start_date).days + 1
+            if date_range_days > 90:
+                return Response(
+                    {'error': 'Date range cannot exceed 90 days. Please use a smaller date range.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # ================================================================
+            # Step 2: Build query with filters
+            # ================================================================
+            
+            # Convert dates to datetime for filtering
+            start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+            end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
+            
+            # Start with all bookings in date range
+            queryset = Booking.objects.filter(
+                booking_date__gte=start_datetime,
+                booking_date__lte=end_datetime
+            )
+            
+            # Apply provider filter if provided
+            provider_id = request.query_params.get('provider_id')
+            if provider_id:
+                try:
+                    provider_id = int(provider_id)
+                    # Check if provider exists
+                    if not User.objects.filter(id=provider_id, user_type='provider').exists():
+                        return Response(
+                            {'error': f'Provider with ID {provider_id} does not exist or is not a provider.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    queryset = queryset.filter(provider_id=provider_id)
+                except ValueError:
+                    return Response(
+                        {'error': 'provider_id must be a valid integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Apply service filter if provided
+            service_id = request.query_params.get('service_id')
+            if service_id:
+                try:
+                    service_id = int(service_id)
+                    # Check if service exists
+                    if not MovingService.objects.filter(id=service_id).exists():
+                        return Response(
+                            {'error': f'Service with ID {service_id} does not exist.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    queryset = queryset.filter(service_id=service_id)
+                except ValueError:
+                    return Response(
+                        {'error': 'service_id must be a valid integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Apply status filter (default to active bookings: pending, confirmed)
+            status_filter = request.query_params.get('status', 'pending,confirmed')
+            if status_filter:
+                # Parse comma-separated status values
+                status_list = [s.strip() for s in status_filter.split(',')]
+                # Validate status values
+                valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
+                invalid_statuses = [s for s in status_list if s not in valid_statuses]
+                if invalid_statuses:
+                    return Response(
+                        {'error': f'Invalid status values: {", ".join(invalid_statuses)}. Valid options: {", ".join(valid_statuses)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                queryset = queryset.filter(status__in=status_list)
+            
+            # Optimize query with select_related to prevent N+1 queries
+            queryset = queryset.select_related('service', 'student', 'provider').order_by('booking_date')
+            
+            # ================================================================
+            # Step 3: Organize bookings by date
+            # ================================================================
+            
+            # Group bookings by date
+            bookings_by_date = defaultdict(list)
+            for booking in queryset:
+                booking_date = booking.booking_date.date()
+                bookings_by_date[booking_date].append(booking)
+            
+            # ================================================================
+            # Step 4: Calculate available slots for each day
+            # ================================================================
+            
+            def calculate_available_slots(date, bookings):
+                """
+                Calculate available time slots for a given date.
+                
+                Business hours: 8 AM - 6 PM
+                Booking window: 2 hours
+                Slots: 8-10, 10-12, 12-14, 14-16, 16-18
+                
+                Args:
+                    date: Date to calculate slots for
+                    bookings: List of bookings for that date
+                    
+                Returns:
+                    tuple: (available_slots list, is_fully_booked boolean)
+                """
+                # Define business hours and slot duration
+                business_start = 8  # 8 AM
+                business_end = 18   # 6 PM
+                slot_duration = 2   # 2 hours
+                
+                # Generate all possible slots
+                all_slots = []
+                current_hour = business_start
+                while current_hour + slot_duration <= business_end:
+                    slot_start = f"{current_hour:02d}:00"
+                    slot_end = f"{(current_hour + slot_duration):02d}:00"
+                    all_slots.append(f"{slot_start} - {slot_end}")
+                    current_hour += slot_duration
+                
+                # Determine which slots are occupied
+                occupied_slots = set()
+                for booking in bookings:
+                    booking_hour = booking.booking_date.hour
+                    # Find which slot this booking falls into
+                    for i, slot_hour in enumerate(range(business_start, business_end, slot_duration)):
+                        if slot_hour <= booking_hour < slot_hour + slot_duration:
+                            occupied_slots.add(all_slots[i])
+                            break
+                
+                # Calculate available slots
+                available_slots = [slot for slot in all_slots if slot not in occupied_slots]
+                is_fully_booked = len(available_slots) == 0
+                
+                return available_slots, is_fully_booked
+            
+            # ================================================================
+            # Step 5: Build calendar response
+            # ================================================================
+            
+            # Generate all dates in range
+            days_data = []
+            current_date = start_date
+            while current_date <= end_date:
+                date_bookings = bookings_by_date.get(current_date, [])
+                available_slots, is_fully_booked = calculate_available_slots(current_date, date_bookings)
+                
+                days_data.append({
+                    'date': current_date,
+                    'bookings': date_bookings,
+                    'available_slots': available_slots,
+                    'is_fully_booked': is_fully_booked
+                })
+                
+                current_date += timedelta(days=1)
+            
+            # ================================================================
+            # Step 6: Serialize and return response
+            # ================================================================
+            
+            from core.serializers import CalendarResponseSerializer
+            
+            response_data = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'provider_id': int(provider_id) if provider_id else None,
+                'service_id': int(service_id) if service_id else None,
+                'status_filter': status_filter,
+                'days': days_data
+            }
+            
+            serializer = CalendarResponseSerializer(response_data)
+            
+            logger.info(
+                f"Calendar retrieved: {start_date} to {end_date}, "
+                f"Provider: {provider_id or 'all'}, "
+                f"Service: {service_id or 'all'}, "
+                f"Status: {status_filter}, "
+                f"Total bookings: {queryset.count()}"
+            )
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in calendar view: {str(e)}")
+            return Response(
+                {'error': 'An error occurred while retrieving calendar data.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def post(self, request, *args, **kwargs):
+        """POST method not allowed."""
+        return Response(
+            {'error': 'Method not allowed. Use GET to retrieve calendar.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'error': 'Method not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
