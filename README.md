@@ -395,7 +395,14 @@ Complete system for buying and selling furniture:
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | GET | `/api/services/list/` | List services with filtering, sorting, and pagination | No |
+| GET | `/api/services/<id>/` | Get detailed service info (profile, stats, reviews) | No |
 | POST | `/api/services/` | Create a new service listing | Yes (Provider) |
+
+### Booking Management
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/bookings/` | Create a new booking | Yes (Student) |
 
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
@@ -532,7 +539,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.4.0 (Service Management System)
+**Current Version**: 2.5.0 (Booking System Beta)
 
 - ✅ Environment setup complete
 - ✅ MySQL database configured
@@ -545,9 +552,11 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Users authentication (Login, Register, Logout)
 - ✅ Profile Management (Get, Update)
 - ✅ Provider Verification System
-- ✅ Service Management (Create, List, Filter, Sort)
+- ✅ Service Management (Create, List, Filter, Sort, Detail)
+- ✅ Booking Creation with Conflict Detection
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
+- 🚧 Booking Management (List, Update)
 - 🚧 Booking & Review System API implementation
 - 🚧 Frontend interface
 
@@ -557,11 +566,12 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 2. ✅ ~~Implement profile management~~ (Complete)
 3. ✅ ~~Implement provider verification~~ (Complete)
 4. ✅ ~~Implement service management~~ (Complete)
-5. Implement Booking System endpoints
-6. Implement Review System endpoints
-7. Build frontend interface
-8. Add payment integration
-9. Deploy to production
+5. ✅ ~~Implement booking creation~~ (Complete)
+6. Implement Booking Management endpoints (List/Update/Cancel)
+7. Implement Review System endpoints
+8. Build frontend interface
+9. Add payment integration
+10. Deploy to production
 
 ---
 
