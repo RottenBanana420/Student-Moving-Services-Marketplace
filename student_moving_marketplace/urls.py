@@ -30,7 +30,8 @@ from core.views import (
     ProviderVerificationView,
     ServiceCreateView,
     ServiceListView,
-    ServiceDetailView
+    ServiceDetailView,
+    BookingCreateView
 )
 
 
@@ -48,6 +49,9 @@ urlpatterns = [
     path('api/services/list/', ServiceListView.as_view(), name='service_list'),
     path('api/services/<int:pk>/', ServiceDetailView.as_view(), name='service_detail'),
     path('api/services/', ServiceCreateView.as_view(), name='service_create'),
+    
+    # Booking endpoints
+    path('api/bookings/', BookingCreateView.as_view(), name='booking_create'),
 
 
     

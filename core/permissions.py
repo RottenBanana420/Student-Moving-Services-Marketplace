@@ -81,3 +81,39 @@ class IsVerifiedProvider(permissions.BasePermission):
             return False
         
         return True
+
+
+class IsStudent(permissions.BasePermission):
+    """
+    Permission class that allows only students to access the endpoint.
+    
+    This permission checks if the authenticated user has user_type='student'.
+    Returns 403 Forbidden for non-student users (providers).
+    
+    Usage:
+        class MyView(APIView):
+            permission_classes = [IsAuthenticated, IsStudent]
+    """
+    
+    message = 'Only students can create bookings.'
+    
+    def has_permission(self, request, view):
+        """
+        Check if user is authenticated and is a student.
+        
+        Args:
+            request: HTTP request object
+            view: View being accessed
+            
+        Returns:
+            bool: True if user is student, False otherwise
+        """
+        # User must be authenticated
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        # User must be a student
+        if not hasattr(request.user, 'user_type') or request.user.user_type != 'student':
+            return False
+        
+        return True

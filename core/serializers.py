@@ -694,7 +694,8 @@ class ServiceProviderSerializer(serializers.ModelSerializer):
             'id',
             'email',
             'university_name',
-            'is_verified'
+            'is_verified',
+            'user_type'
         ]
         read_only_fields = fields
 
@@ -999,4 +1000,235 @@ class ServiceDetailSerializer(serializers.ModelSerializer):
             result[rating_str] = item['count']
         
         return result
+
+
+# ============================================================================
+# Booking Creation Serializers
+# ============================================================================
+
+class BookingCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating bookings.
+    
+    Security features:
+    - Auto-populates student from authenticated user
+    - Auto-populates provider from service
+    - Auto-sets status to 'pending'
+    - Auto-calculates total_price from service base_price
+    - Validates booking date is in future (minimum 1 hour advance)
+    - Prevents self-booking (user cannot book their own service)
+    - Validates service exists and is available
+    - Includes provider information in response
+    
+    Fields:
+    - service: Required, must exist and be available
+    - booking_date: Required, must be in future (minimum 1 hour advance)
+    - pickup_location: Required, max 300 characters
+    - dropoff_location: Required, max 300 characters
+    
+    Read-only fields (auto-populated):
+    - id: Auto-generated
+    - student: Set from request.user
+    - provider: Set from service.provider
+    - status: Set to 'pending'
+    - total_price: Set from service.base_price
+    - created_at: Auto-generated
+    - updated_at: Auto-generated
+    """
+    
+    # Include provider information in response
+    provider = ServiceProviderSerializer(read_only=True)
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('student_bookings').related_model
+        fields = [
+            'id',
+            'service',
+            'booking_date',
+            'pickup_location',
+            'dropoff_location',
+            'student',
+            'provider',
+            'status',
+            'total_price',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['id', 'student', 'provider', 'status', 'total_price', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'service': {'required': True},
+            'booking_date': {'required': True},
+            'pickup_location': {'required': True},
+            'dropoff_location': {'required': True},
+        }
+    
+    def validate_service(self, value):
+        """
+        Validate service exists and is available.
+        
+        Args:
+            value: MovingService instance
+            
+        Returns:
+            MovingService: Validated service instance
+            
+        Raises:
+            ValidationError: If service is unavailable
+        """
+        if not value.availability_status:
+            raise serializers.ValidationError(
+                "This service is currently unavailable for booking."
+            )
+        
+        return value
+    
+    def validate_booking_date(self, value):
+        """
+        Validate booking date is in the future with minimum advance notice.
+        
+        Requires at least 1 hour advance notice for bookings.
+        
+        Args:
+            value: Booking datetime
+            
+        Returns:
+            datetime: Validated booking datetime
+            
+        Raises:
+            ValidationError: If booking date is in past or too soon
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        now = timezone.now()
+        minimum_advance = timedelta(hours=1)
+        
+        # Ensure booking_date is timezone-aware
+        if value.tzinfo is None:
+            raise serializers.ValidationError(
+                "Booking date must include timezone information."
+            )
+        
+        # Check if booking is in the past
+        if value <= now:
+            raise serializers.ValidationError(
+                "Booking date must be in the future."
+            )
+        
+        # Check minimum advance notice (1 hour)
+        if value < now + minimum_advance:
+            raise serializers.ValidationError(
+                "Bookings must be made at least 1 hour in advance."
+            )
+        
+        return value
+    
+    def validate_pickup_location(self, value):
+        """
+        Validate pickup location is not empty.
+        
+        Args:
+            value: Pickup location string
+            
+        Returns:
+            str: Validated pickup location
+            
+        Raises:
+            ValidationError: If pickup location is empty
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Pickup location cannot be empty."
+            )
+        
+        return value.strip()
+    
+    def validate_dropoff_location(self, value):
+        """
+        Validate dropoff location is not empty.
+        
+        Args:
+            value: Dropoff location string
+            
+        Returns:
+            str: Validated dropoff location
+            
+        Raises:
+            ValidationError: If dropoff location is empty
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Dropoff location cannot be empty."
+            )
+        
+        return value.strip()
+    
+    def validate(self, attrs):
+        """
+        Object-level validation for self-booking prevention.
+        
+        Ensures user cannot book their own service.
+        
+        Args:
+            attrs: Validated field data
+            
+        Returns:
+            dict: Validated data
+            
+        Raises:
+            ValidationError: If user tries to book their own service
+        """
+        request = self.context.get('request')
+        service = attrs.get('service')
+        
+        # Prevent self-booking
+        if request and request.user and service:
+            if service.provider == request.user:
+                raise serializers.ValidationError(
+                    "You cannot book your own service."
+                )
+        
+        return attrs
+    
+    def create(self, validated_data):
+        """
+        Create booking with auto-populated fields.
+        
+        Auto-populates:
+        - student: From request.user
+        - provider: From service.provider
+        - status: 'pending'
+        - total_price: From service.base_price
+        
+        Note: Conflict detection is handled in the view using database locking.
+        
+        Args:
+            validated_data: Validated data from serializer
+            
+        Returns:
+            Booking: Created booking instance
+        """
+        from core.models import Booking
+        
+        # Get authenticated user from context
+        request = self.context.get('request')
+        if not request or not request.user:
+            raise serializers.ValidationError(
+                "Authentication required to create booking."
+            )
+        
+        # Get service
+        service = validated_data['service']
+        
+        # Auto-populate fields
+        validated_data['student'] = request.user
+        validated_data['provider'] = service.provider
+        validated_data['status'] = 'pending'
+        validated_data['total_price'] = service.base_price
+        
+        # Create the booking
+        # Note: The model's save() method will call full_clean() for validation
+        booking = Booking.objects.create(**validated_data)
+        
+        return booking
 

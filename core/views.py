@@ -1242,3 +1242,234 @@ class ServiceDetailView(generics.RetrieveAPIView):
             # Re-raise to let DRF handle it (will return 404 for DoesNotExist)
             raise
 
+
+# ============================================================================
+# Booking Creation View
+# ============================================================================
+
+class BookingCreateView(APIView):
+    """
+    API endpoint for creating bookings.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Requires student user type (IsStudent)
+    - Prevents self-booking (user cannot book their own service)
+    - Validates booking date is in future (minimum 1 hour advance)
+    - Prevents double-booking with database-level locking
+    - Uses transaction.atomic() and select_for_update() for race condition prevention
+    
+    POST /api/bookings/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {
+        "service": 1,
+        "booking_date": "2025-12-10T14:00:00Z",
+        "pickup_location": "123 Main St, Test City",
+        "dropoff_location": "456 Oak Ave, Test City"
+    }
+    
+    Success response (201):
+    {
+        "id": 1,
+        "service": 1,
+        "booking_date": "2025-12-10T14:00:00Z",
+        "pickup_location": "123 Main St, Test City",
+        "dropoff_location": "456 Oak Ave, Test City",
+        "student": 1,
+        "provider": {
+            "id": 2,
+            "email": "provider@example.com",
+            "university_name": "Test University",
+            "is_verified": true
+        },
+        "status": "pending",
+        "total_price": "100.00",
+        "created_at": "2025-12-07T16:00:00Z",
+        "updated_at": "2025-12-07T16:00:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: Non-student attempting to create booking
+    - 400: Invalid data (validation errors, self-booking, unavailable service)
+    - 409: Conflict (provider already booked at requested time)
+    - 405: Method not allowed (only POST supported)
+    """
+    permission_classes = [AllowAny]  # Will check manually for better error messages
+    
+    def get_client_ip(self, request):
+        """
+        Get client IP address from request.
+        Handles proxy headers for accurate IP detection.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def post(self, request, *args, **kwargs):
+        """
+        Handle booking creation request with conflict detection.
+        
+        Steps:
+        1. Verify user is authenticated
+        2. Verify user is a student
+        3. Validate request data
+        4. Check for booking conflicts (with database locking)
+        5. Create booking
+        6. Log creation action
+        7. Return created booking details
+        """
+        from datetime import timedelta
+        from django.db import transaction
+        from django.utils import timezone
+        from core.models import Booking
+        from core.serializers import BookingCreateSerializer
+        from core.permissions import IsStudent
+        
+        # Step 1: Check authentication
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {'detail': 'Authentication credentials were not provided.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Step 2: Check if user is a student
+        permission = IsStudent()
+        
+        if not permission.has_permission(request, self):
+            logger.warning(
+                f"Non-student user attempted booking creation. "
+                f"User: {request.user.email}, User Type: {getattr(request.user, 'user_type', 'unknown')}, "
+                f"IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': 'Only students can create bookings.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Step 3: Validate request data
+        serializer = BookingCreateSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Step 4 & 5: Check for conflicts and create booking atomically
+        # Use transaction.atomic() to ensure atomicity
+        # Use select_for_update() to lock provider's bookings and prevent race conditions
+        try:
+            with transaction.atomic():
+                # Get validated data
+                service = serializer.validated_data['service']
+                booking_date = serializer.validated_data['booking_date']
+                provider = service.provider
+                
+                # Define conflict window (2 hours before and after)
+                # This assumes each booking takes approximately 2 hours
+                conflict_window_hours = 2
+                conflict_start = booking_date - timedelta(hours=conflict_window_hours)
+                conflict_end = booking_date + timedelta(hours=conflict_window_hours)
+                
+                # Lock provider's bookings to prevent concurrent modifications
+                # select_for_update() acquires a database-level lock on these rows
+                # Other transactions will wait until this transaction completes
+                conflicting_bookings = Booking.objects.select_for_update().filter(
+                    provider=provider,
+                    booking_date__gte=conflict_start,
+                    booking_date__lt=conflict_end,
+                    status__in=['pending', 'confirmed']  # Only check active bookings
+                )
+                
+                # Check if there are any conflicting bookings
+                if conflicting_bookings.exists():
+                    conflict_booking = conflicting_bookings.first()
+                    logger.warning(
+                        f"Booking conflict detected. "
+                        f"Provider: {provider.email} (ID: {provider.id}), "
+                        f"Requested Date: {booking_date}, "
+                        f"Conflicting Booking ID: {conflict_booking.id}, "
+                        f"Conflicting Date: {conflict_booking.booking_date}, "
+                        f"Student: {request.user.email}, "
+                        f"IP: {self.get_client_ip(request)}"
+                    )
+                    return Response(
+                        {
+                            'detail': 'This provider is already booked during the requested time slot. '
+                                     'Please choose a different time or service.'
+                        },
+                        status=status.HTTP_409_CONFLICT
+                    )
+                
+                # No conflicts - create the booking
+                booking = serializer.save()
+                
+                # Step 6: Log creation action
+                logger.info(
+                    f"Booking created successfully. "
+                    f"Booking ID: {booking.id}, "
+                    f"Service: {service.service_name} (ID: {service.id}), "
+                    f"Provider: {provider.email} (ID: {provider.id}), "
+                    f"Student: {request.user.email} (ID: {request.user.id}), "
+                    f"Booking Date: {booking_date}, "
+                    f"IP: {self.get_client_ip(request)}"
+                )
+                
+                # Step 7: Return created booking details
+                # Re-serialize to include provider information
+                response_serializer = BookingCreateSerializer(
+                    booking,
+                    context={'request': request}
+                )
+                
+                return Response(
+                    response_serializer.data,
+                    status=status.HTTP_201_CREATED
+                )
+                
+        except Exception as e:
+            logger.error(
+                f"Error creating booking: {str(e)}, "
+                f"User: {request.user.email}, "
+                f"IP: {self.get_client_ip(request)}"
+            )
+            return Response(
+                {'detail': 'An error occurred while creating the booking.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def get(self, request, *args, **kwargs):
+        """GET method not allowed."""
+        return Response(
+            {'detail': 'Method "GET" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def put(self, request, *args, **kwargs):
+        """PUT method not allowed."""
+        return Response(
+            {'detail': 'Method "PUT" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def patch(self, request, *args, **kwargs):
+        """PATCH method not allowed."""
+        return Response(
+            {'detail': 'Method "PATCH" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def delete(self, request, *args, **kwargs):
+        """DELETE method not allowed."""
+        return Response(
+            {'detail': 'Method "DELETE" not allowed.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+
