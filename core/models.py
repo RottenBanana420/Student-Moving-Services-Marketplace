@@ -485,6 +485,13 @@ class Booking(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['booking_date']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['service', 'booking_date'],
+                name='unique_booking_per_service_slot',
+                condition=~models.Q(status='cancelled')
+            )
+        ]
     
     def __str__(self):
         """Return meaningful string representation."""
@@ -564,6 +571,21 @@ class Booking(models.Model):
             except Booking.DoesNotExist:
                 # New instance, no validation needed
                 pass
+        
+        # Check for overlapping bookings (application-level check)
+        # This handles sequential logic and works with lock in view
+        qs = Booking.objects.filter(
+            service=self.service, 
+            booking_date=self.booking_date
+        ).exclude(status__in=['cancelled', 'completed']) # Completed bookings might blocking too, usually completed implies "past" but blocked.
+        # Requirement: "System prevents double-booking". 
+        # If it is 'pending' or 'confirmed' or 'completed', it blocks.
+        
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+            
+        if qs.exists():
+             raise ValidationError({'booking_date': _('This service is already booked for this time slot.')})
     
     def can_transition_to(self, new_status, current_time=None):
         """

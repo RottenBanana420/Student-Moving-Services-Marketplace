@@ -1372,6 +1372,9 @@ class BookingCreateView(APIView):
                 # Get validated data
                 service = serializer.validated_data['service']
                 booking_date = serializer.validated_data['booking_date']
+                # Lock the provider to serialize booking attempts and prevent race conditions for new insertions
+                # This ensures two concurrent requests wait for each other
+                _provider_lock = User.objects.select_for_update().get(pk=service.provider_id)
                 provider = service.provider
                 
                 # Define conflict window (2 hours before and after)
