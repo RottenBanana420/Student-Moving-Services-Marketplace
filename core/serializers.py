@@ -1460,3 +1460,239 @@ class CalendarResponseSerializer(serializers.Serializer):
     service_id = serializers.IntegerField(allow_null=True, required=False)
     status_filter = serializers.CharField(allow_null=True, required=False)
     days = CalendarDaySerializer(many=True, read_only=True)
+
+# ============================================================================
+# Booking History Serializers
+# ============================================================================
+
+class BookingHistoryServiceSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for service information in booking history.
+    
+    Provides essential service details for booking history display.
+    Optimized for use with select_related to prevent N+1 queries.
+    
+    Fields:
+    - id: Service ID
+    - service_name: Name of the service
+    - description: Service description
+    - base_price: Base price for the service
+    """
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('services').related_model
+        fields = [
+            'id',
+            'service_name',
+            'description',
+            'base_price'
+        ]
+        read_only_fields = fields
+
+
+class BookingHistoryProviderSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for provider information in booking history (shown to students).
+    
+    Provides provider details without exposing sensitive information.
+    Optimized for use with select_related to prevent N+1 queries.
+    
+    Fields:
+    - id: Provider user ID
+    - email: Provider email address
+    - university_name: Provider's university
+    - is_verified: Provider verification status
+    - profile_image_url: Full URL to profile image (null if not uploaded)
+    """
+    
+    profile_image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'university_name',
+            'is_verified',
+            'profile_image_url'
+        ]
+        read_only_fields = fields
+    
+    def get_profile_image_url(self, obj):
+        """
+        Generate full URL for profile image.
+        
+        Args:
+            obj: User instance
+            
+        Returns:
+            str: Full URL to profile image, or None if no image uploaded
+        """
+        if obj.profile_image:
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.profile_image.url)
+            else:
+                return obj.profile_image.url
+        return None
+
+
+class BookingHistoryStudentSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for student information in booking history (shown to providers).
+    
+    Provides student details without exposing sensitive information.
+    Optimized for use with select_related to prevent N+1 queries.
+    
+    Fields:
+    - id: Student user ID
+    - email: Student email address
+    - university_name: Student's university
+    - profile_image_url: Full URL to profile image (null if not uploaded)
+    """
+    
+    profile_image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'university_name',
+            'profile_image_url'
+        ]
+        read_only_fields = fields
+    
+    def get_profile_image_url(self, obj):
+        """
+        Generate full URL for profile image.
+        
+        Args:
+            obj: User instance
+            
+        Returns:
+            str: Full URL to profile image, or None if no image uploaded
+        """
+        if obj.profile_image:
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.profile_image.url)
+            else:
+                return obj.profile_image.url
+        return None
+
+
+class BookingHistorySerializer(serializers.ModelSerializer):
+    """
+    Main serializer for booking history endpoint.
+    
+    Provides comprehensive booking details with conditional nested data:
+    - Students see provider information
+    - Providers see student information
+    
+    Optimized for performance with select_related('service', 'provider', 'student') in view.
+    
+    Fields:
+    - id: Booking ID
+    - booking_date: Date and time of the booking
+    - pickup_location: Pickup address
+    - dropoff_location: Dropoff address
+    - status: Booking status (pending, confirmed, completed, cancelled)
+    - total_price: Total price for the booking
+    - created_at: Booking creation timestamp
+    - updated_at: Last update timestamp
+    - service: Nested service information (BookingHistoryServiceSerializer)
+    - provider: Nested provider information (shown to students only)
+    - student: Nested student information (shown to providers only)
+    """
+    
+    service = BookingHistoryServiceSerializer(read_only=True)
+    provider = serializers.SerializerMethodField()
+    student = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = get_user_model()._meta.get_field('student_bookings').related_model
+        fields = [
+            'id',
+            'booking_date',
+            'pickup_location',
+            'dropoff_location',
+            'status',
+            'total_price',
+            'created_at',
+            'updated_at',
+            'service',
+            'provider',
+            'student'
+        ]
+        read_only_fields = fields
+    
+    def get_provider(self, obj):
+        """
+        Get provider information (shown to students only).
+        
+        Args:
+            obj: Booking instance
+            
+        Returns:
+            dict: Serialized provider data, or None if user is provider
+        """
+        request = self.context.get('request')
+        
+        # Only show provider info to students
+        if request and request.user and request.user.is_student():
+            return BookingHistoryProviderSerializer(
+                obj.provider,
+                context=self.context
+            ).data
+        
+        return None
+    
+    def get_student(self, obj):
+        """
+        Get student information (shown to providers only).
+        
+        Args:
+            obj: Booking instance
+            
+        Returns:
+            dict: Serialized student data, or None if user is student
+        """
+        request = self.context.get('request')
+        
+        # Only show student info to providers
+        if request and request.user and request.user.is_provider():
+            return BookingHistoryStudentSerializer(
+                obj.student,
+                context=self.context
+            ).data
+        
+        return None
+    
+    def to_representation(self, instance):
+        """
+        Override to_representation to exclude null fields.
+        
+        Students should not see 'student' field at all.
+        Providers should not see 'provider' field at all.
+        
+        Args:
+            instance: Booking instance
+            
+        Returns:
+            dict: Serialized data with null fields removed
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        
+        # Remove null fields based on user type
+        if request and request.user:
+            if request.user.is_student():
+                # Students don't need to see student field (that's themselves)
+                data.pop('student', None)
+            elif request.user.is_provider():
+                # Providers don't need to see provider field (that's themselves)
+                data.pop('provider', None)
+        
+        return data
+

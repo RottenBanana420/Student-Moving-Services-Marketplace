@@ -8,7 +8,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework import generics, status
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from django.db import IntegrityError
@@ -1967,3 +1969,173 @@ class BookingCalendarView(APIView):
             {'error': 'Method not allowed.'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+# ============================================================================
+# Booking History View
+# ============================================================================
+
+class BookingHistoryView(ListAPIView):
+    """
+    API endpoint for retrieving authenticated user's booking history.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - User-specific data isolation (students see their bookings, providers see bookings for their services)
+    - Query optimization with select_related to prevent N+1 queries
+    
+    Features:
+    - Filtering by status (pending, confirmed, completed, cancelled)
+    - Filtering by date range (start_date, end_date)
+    - Filtering by upcoming/past bookings
+    - Sorting by booking_date (ascending or descending)
+    - Pagination (20 items per page)
+    
+    GET /api/bookings/my-bookings/
+    Headers: Authorization: Bearer <access_token>
+    
+    Query Parameters:
+    - status (optional): Filter by booking status
+    - start_date (optional): Start of date range (YYYY-MM-DD)
+    - end_date (optional): End of date range (YYYY-MM-DD)
+    - upcoming (optional): Filter for upcoming bookings (true/false)
+    - past (optional): Filter for past bookings (true/false)
+    - sort (optional): Sort order (booking_date_asc or booking_date_desc, default: booking_date_desc)
+    - page (optional): Page number for pagination
+    
+    Success response (200):
+    {
+        "count": 25,
+        "next": "http://example.com/api/bookings/my-bookings/?page=2",
+        "previous": null,
+        "results": [
+            {
+                "id": 1,
+                "booking_date": "2025-12-15T10:00:00Z",
+                "pickup_location": "123 Main St",
+                "dropoff_location": "456 Oak Ave",
+                "status": "confirmed",
+                "total_price": "100.00",
+                "created_at": "2025-12-08T10:00:00Z",
+                "updated_at": "2025-12-08T14:30:00Z",
+                "service": {
+                    "id": 1,
+                    "service_name": "Moving Service",
+                    "description": "Professional moving service",
+                    "base_price": "100.00"
+                },
+                "provider": {  // Only shown to students
+                    "id": 2,
+                    "email": "provider@example.com",
+                    "university_name": "Test University",
+                    "is_verified": true,
+                    "profile_image_url": "http://example.com/media/profile_images/2/image.jpg"
+                },
+                "student": null  // Only shown to providers
+            }
+        ]
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    """
+    
+    permission_classes = [IsAuthenticated]
+    pagination_class = PageNumberPagination
+    
+    def get_serializer_class(self):
+        """Return the serializer class for booking history."""
+        from core.serializers import BookingHistorySerializer
+        return BookingHistorySerializer
+    
+    def get_queryset(self):
+        """
+        Get user-specific bookings with filtering and optimization.
+        
+        Returns:
+            QuerySet: Filtered and optimized booking queryset
+        """
+        from core.models import Booking
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date
+        
+        user = self.request.user
+        
+        # Base queryset depends on user type
+        if user.is_student():
+            # Students see bookings they created
+            queryset = Booking.objects.filter(student=user)
+        elif user.is_provider():
+            # Providers see bookings for their services
+            queryset = Booking.objects.filter(provider=user)
+        else:
+            # Fallback: empty queryset
+            queryset = Booking.objects.none()
+        
+        # Optimize queries with select_related to prevent N+1 queries
+        queryset = queryset.select_related('service', 'provider', 'student')
+        
+        # Apply status filter
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Apply date range filter
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+        
+        if start_date_str:
+            start_date = parse_date(start_date_str)
+            if start_date:
+                # Filter bookings on or after start_date
+                start_datetime = timezone.make_aware(
+                    timezone.datetime.combine(start_date, timezone.datetime.min.time())
+                )
+                queryset = queryset.filter(booking_date__gte=start_datetime)
+        
+        if end_date_str:
+            end_date = parse_date(end_date_str)
+            if end_date:
+                # Filter bookings on or before end_date
+                end_datetime = timezone.make_aware(
+                    timezone.datetime.combine(end_date, timezone.datetime.max.time())
+                )
+                queryset = queryset.filter(booking_date__lte=end_datetime)
+        
+        # Apply upcoming/past filter
+        upcoming = self.request.query_params.get('upcoming')
+        past = self.request.query_params.get('past')
+        
+        if upcoming and upcoming.lower() == 'true':
+            # Filter for future bookings
+            queryset = queryset.filter(booking_date__gte=timezone.now())
+        elif past and past.lower() == 'true':
+            # Filter for past bookings
+            queryset = queryset.filter(booking_date__lt=timezone.now())
+        
+        # Apply sorting
+        sort_param = self.request.query_params.get('sort', 'booking_date_desc')
+        
+        if sort_param == 'booking_date_asc':
+            queryset = queryset.order_by('booking_date')
+        else:  # Default: booking_date_desc
+            queryset = queryset.order_by('-booking_date')
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Handle GET request for booking history.
+        
+        Returns paginated booking history with proper serialization.
+        """
+        queryset = self.get_queryset()
+        
+        # Apply pagination
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        
+        # Fallback without pagination (shouldn't happen with pagination_class set)
+        serializer = self.get_serializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)

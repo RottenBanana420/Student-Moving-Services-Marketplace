@@ -33,7 +33,8 @@ from core.views import (
     ServiceDetailView,
     BookingCreateView,
     BookingStatusUpdateView,
-    BookingCalendarView
+    BookingCalendarView,
+    BookingHistoryView
 )
 
 
@@ -53,6 +54,7 @@ urlpatterns = [
     path('api/services/', ServiceCreateView.as_view(), name='service_create'),
     
     # Booking endpoints
+    path('api/bookings/my-bookings/', BookingHistoryView.as_view(), name='booking_history'),
     path('api/bookings/calendar/', BookingCalendarView.as_view(), name='booking_calendar'),
     path('api/bookings/<int:pk>/status/', BookingStatusUpdateView.as_view(), name='booking_status_update'),
     path('api/bookings/', BookingCreateView.as_view(), name='booking_create'),
