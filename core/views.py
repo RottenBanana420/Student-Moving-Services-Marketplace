@@ -2142,3 +2142,137 @@ class BookingHistoryView(ListAPIView):
         # Fallback without pagination (shouldn't happen with pagination_class set)
         serializer = self.get_serializer(queryset, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# Review Creation View
+# ============================================================================
+
+class ReviewCreateView(generics.CreateAPIView):
+    """
+    API endpoint for creating reviews.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Validates booking exists and is completed
+    - Validates user participated in booking
+    - Automatically determines reviewer and reviewee
+    - Prevents duplicate reviews (OneToOneField constraint)
+    
+    POST /api/reviews/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {
+        "booking_id": 123,
+        "rating": 5,
+        "comment": "Excellent service!"
+    }
+    
+    Success response (201):
+    {
+        "id": 1,
+        "rating": 5,
+        "comment": "Excellent service!",
+        "reviewer": {
+            "id": 1,
+            "email": "student@example.com",
+            "user_type": "student"
+        },
+        "reviewee": {
+            "id": 2,
+            "email": "provider@example.com",
+            "user_type": "provider"
+        },
+        "booking": {
+            "id": 123,
+            "booking_date": "2025-12-08T10:00:00Z",
+            "status": "completed"
+        },
+        "created_at": "2025-12-08T16:00:00Z"
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: User didn't participate in booking
+    - 404: Booking not found
+    - 400: Invalid data (validation errors, duplicate review, etc.)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """Return the appropriate serializer class."""
+        from .serializers import ReviewCreateSerializer
+        return ReviewCreateSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Handle review creation with comprehensive error handling.
+        
+        Catches:
+        - IntegrityError for duplicate reviews (OneToOneField constraint)
+        - NotFound for non-existent bookings
+        - PermissionDenied for non-participants
+        
+        Returns:
+            Response: Created review data or error
+        """
+        from rest_framework.exceptions import NotFound, PermissionDenied
+        from django.db import transaction
+        
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            
+            # Wrap in atomic transaction to handle IntegrityError properly
+            with transaction.atomic():
+                self.perform_create(serializer)
+            
+            headers = self.get_success_headers(serializer.data)
+            
+            logger.info(
+                f"Review created successfully. "
+                f"Reviewer: {request.user.email}, "
+                f"Booking ID: {request.data.get('booking_id')}"
+            )
+            
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+                headers=headers
+            )
+            
+        except NotFound as e:
+            # Booking not found - return 404
+            logger.warning(
+                f"Review creation failed - booking not found. "
+                f"User: {request.user.email}, "
+                f"Booking ID: {request.data.get('booking_id')}"
+            )
+            return Response(
+                {'detail': str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        except PermissionDenied as e:
+            # User didn't participate in booking - return 403
+            logger.warning(
+                f"Review creation failed - user not participant. "
+                f"User: {request.user.email}, "
+                f"Booking ID: {request.data.get('booking_id')}"
+            )
+            return Response(
+                {'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        except IntegrityError as e:
+            # Duplicate review (OneToOneField constraint) - return 400
+            logger.warning(
+                f"Review creation failed - duplicate review. "
+                f"User: {request.user.email}, "
+                f"Booking ID: {request.data.get('booking_id')}"
+            )
+            return Response(
+                {'detail': 'This booking has already been reviewed. Each booking can only be reviewed once.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )

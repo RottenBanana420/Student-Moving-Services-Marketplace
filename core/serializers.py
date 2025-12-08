@@ -1342,6 +1342,228 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
 
 # ============================================================================
+# Review Creation Serializers
+# ============================================================================
+
+class ReviewUserSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for user information in review responses.
+    
+    Provides essential user details without exposing sensitive information.
+    
+    Fields:
+    - id: User ID
+    - email: User email address
+    - user_type: 'student' or 'provider'
+    """
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'user_type']
+        read_only_fields = fields
+
+
+class ReviewBookingSerializer(serializers.ModelSerializer):
+    """
+    Nested serializer for booking information in review responses.
+    
+    Provides essential booking details.
+    
+    Fields:
+    - id: Booking ID
+    - booking_date: Date and time of booking
+    - status: Booking status
+    """
+    
+    class Meta:
+        from core.models import Booking
+        model = Booking
+        fields = ['id', 'booking_date', 'status']
+        read_only_fields = fields
+
+
+class ReviewCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating reviews.
+    
+    Security features:
+    - Requires JWT authentication (enforced by view)
+    - Validates booking exists and is completed
+    - Validates user participated in booking
+    - Automatically determines reviewer and reviewee
+    - Prevents duplicate reviews (OneToOneField constraint)
+    
+    Fields:
+    - booking_id: Required, ID of completed booking to review
+    - rating: Required, integer from 1-5
+    - comment: Required, text feedback
+    
+    Read-only fields (auto-populated):
+    - id: Auto-generated
+    - reviewer: Set from request.user
+    - reviewee: Determined from booking participants
+    - booking: Set from booking_id
+    - created_at: Auto-generated
+    """
+    
+    booking_id = serializers.IntegerField(write_only=True, required=True)
+    reviewer = ReviewUserSerializer(read_only=True)
+    reviewee = ReviewUserSerializer(read_only=True)
+    booking = ReviewBookingSerializer(read_only=True)
+    
+    class Meta:
+        from core.models import Review
+        model = Review
+        fields = ['id', 'booking_id', 'rating', 'comment', 'reviewer', 'reviewee', 'booking', 'created_at']
+        read_only_fields = ['id', 'reviewer', 'reviewee', 'booking', 'created_at']
+        extra_kwargs = {
+            'rating': {'required': True},
+            'comment': {'required': True},
+        }
+    
+    def validate_rating(self, value):
+        """
+        Validate rating is integer between 1-5.
+        
+        Args:
+            value: Rating value
+            
+        Returns:
+            int: Validated rating
+            
+        Raises:
+            ValidationError: If rating is not between 1-5
+        """
+        # Check if it's an integer (DRF IntegerField handles type conversion)
+        if not isinstance(value, int):
+            raise serializers.ValidationError(
+                "Rating must be an integer."
+            )
+        
+        # Check range (1-5)
+        if value < 1 or value > 5:
+            raise serializers.ValidationError(
+                "Rating must be between 1 and 5."
+            )
+        
+        return value
+    
+    def validate_booking_id(self, value):
+        """
+        Validate booking exists.
+        
+        Args:
+            value: Booking ID
+            
+        Returns:
+            int: Validated booking ID
+            
+        Raises:
+            NotFound: If booking doesn't exist (returns 404)
+        """
+        from core.models import Booking
+        from rest_framework.exceptions import NotFound
+        
+        # Check if booking exists
+        if not Booking.objects.filter(id=value).exists():
+            # Raise NotFound to return 404 instead of 400
+            raise NotFound("Booking not found.")
+        
+        return value
+    
+    def validate(self, attrs):
+        """
+        Object-level validation for booking status and user participation.
+        
+        Validates:
+        - Booking status is 'completed'
+        - Authenticated user participated in booking (student or provider)
+        - Automatically determines reviewer and reviewee
+        
+        Args:
+            attrs: Validated data
+            
+        Returns:
+            dict: Validated data with reviewer, reviewee, and booking set
+            
+        Raises:
+            ValidationError: If validation fails
+        """
+        from core.models import Booking
+        from rest_framework.exceptions import PermissionDenied, NotFound
+        
+        booking_id = attrs.get('booking_id')
+        request = self.context.get('request')
+        
+        if not request or not request.user:
+            raise serializers.ValidationError(
+                "Authentication required to create review."
+            )
+        
+        # Get booking
+        try:
+            booking = Booking.objects.select_related('student', 'provider').get(id=booking_id)
+        except Booking.DoesNotExist:
+            # Raise NotFound to return 404 instead of 400
+            raise NotFound("Booking not found.")
+        
+        # Validate booking status is completed
+        if booking.status != 'completed':
+            raise serializers.ValidationError({
+                'booking_id': f"Only completed bookings can be reviewed. This booking is {booking.status}."
+            })
+        
+        # Validate user participated in booking
+        user = request.user
+        if user.id not in [booking.student_id, booking.provider_id]:
+            # Raise PermissionDenied to return 403 instead of 400
+            raise PermissionDenied(
+                "You can only review bookings you participated in."
+            )
+        
+        # Automatically determine reviewer and reviewee
+        if user.id == booking.student_id:
+            # Student is reviewing provider
+            attrs['reviewer'] = booking.student
+            attrs['reviewee'] = booking.provider
+        else:
+            # Provider is reviewing student
+            attrs['reviewer'] = booking.provider
+            attrs['reviewee'] = booking.student
+        
+        # Set booking
+        attrs['booking'] = booking
+        
+        return attrs
+    
+    def create(self, validated_data):
+        """
+        Create review with auto-populated fields.
+        
+        Args:
+            validated_data: Validated data from serializer
+            
+        Returns:
+            Review: Created review instance
+            
+        Raises:
+            ValidationError: If duplicate review (caught by view and converted to 400)
+        """
+        from core.models import Review
+        
+        # Remove booking_id as it's not a model field
+        validated_data.pop('booking_id', None)
+        
+        # Create review
+        # The model's save() method will validate business logic
+        # OneToOneField constraint will prevent duplicates at database level
+        review = Review(**validated_data)
+        review.save()
+        
+        return review
+
+
+# ============================================================================
 # Booking Calendar Serializers
 # ============================================================================
 
