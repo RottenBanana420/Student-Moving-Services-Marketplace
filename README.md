@@ -403,6 +403,9 @@ Complete system for buying and selling furniture:
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | POST | `/api/bookings/` | Create a new booking | Yes (Student) |
+| GET | `/api/bookings/my-bookings/` | Get booking history | Yes |
+| GET | `/api/bookings/calendar/` | Get provider calendar | Yes (Provider) |
+| PUT | `/api/bookings/<id>/status/` | Update booking status | Yes |
 
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
@@ -556,8 +559,8 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Booking Creation with Conflict Detection
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
-- 🚧 Booking Management (List, Update)
-- 🚧 Booking & Review System API implementation
+- ✅ Booking Management (List, Update, Calendar)
+- 🚧 Review System API implementation
 - 🚧 Frontend interface
 
 ## 🎯 Next Steps
@@ -567,7 +570,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 3. ✅ ~~Implement provider verification~~ (Complete)
 4. ✅ ~~Implement service management~~ (Complete)
 5. ✅ ~~Implement booking creation~~ (Complete)
-6. Implement Booking Management endpoints (List/Update/Cancel)
+6. ✅ ~~Implement Booking Management endpoints (List/Update/Cancel)~~ (Complete)
 7. Implement Review System endpoints
 8. Build frontend interface
 9. Add payment integration
