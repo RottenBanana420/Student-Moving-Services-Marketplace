@@ -2406,3 +2406,233 @@ class ServiceReviewsView(ListAPIView):
                 'rating_distribution': distribution
             }
         })
+
+
+# ============================================================================
+# User Reviews View
+# ============================================================================
+
+class UserReviewsView(ListAPIView):
+    """
+    API endpoint for retrieving all reviews for a specific user.
+    
+    Shows bidirectional reviews:
+    - Reviews received as a provider (from students)
+    - Reviews received as a student (from providers)
+    
+    Public endpoint - no authentication required (reviews are public information).
+    
+    GET /api/reviews/user/<user_id>/
+    
+    Query Parameters:
+    - role (optional): Filter by role ('provider' or 'student')
+    - min_rating (optional): Filter by minimum rating (1-5)
+    - sort (optional): Sort order ('date_desc' [default], 'rating_desc', 'rating_asc')
+    - page (optional): Page number for pagination
+    
+    Success response (200):
+    {
+        "count": 25,
+        "next": "http://example.com/api/reviews/user/1/?page=2",
+        "previous": null,
+        "results": [
+            {
+                "id": 1,
+                "rating": 5,
+                "comment": "Excellent service!",
+                "created_at": "2025-12-08T10:00:00Z",
+                "reviewer": {
+                    "id": 2,
+                    "email": "student@example.com",
+                    "user_type": "student"
+                },
+                "review_context": "as_provider",
+                "service_name": "Moving Service"
+            }
+        ],
+        "statistics": {
+            "as_provider": {
+                "average_rating": 4.5,
+                "total_reviews": 10,
+                "rating_distribution": {
+                    "5": 5,
+                    "4": 3,
+                    "3": 2,
+                    "2": 0,
+                    "1": 0
+                }
+            },
+            "as_student": {
+                "average_rating": 4.0,
+                "total_reviews": 5,
+                "rating_distribution": {
+                    "5": 2,
+                    "4": 2,
+                    "3": 1,
+                    "2": 0,
+                    "1": 0
+                }
+            }
+        }
+    }
+    
+    Error responses:
+    - 404: User not found
+    """
+    
+    # Custom pagination class for user reviews
+    class UserReviewsPagination(PageNumberPagination):
+        page_size = 10
+        page_size_query_param = 'page_size'
+        max_page_size = 100
+    
+    permission_classes = [AllowAny]
+    pagination_class = UserReviewsPagination
+
+    
+    def get_serializer_class(self):
+        """Return the serializer class for user reviews."""
+        from core.serializers import UserReviewSerializer
+        return UserReviewSerializer
+    
+    def get_queryset(self):
+        """
+        Get all reviews for the specified user with filtering and optimization.
+        
+        Uses Q objects to query bidirectional reviews (as provider or as student).
+        Optimizes queries with select_related to prevent N+1 queries.
+        
+        Returns:
+            QuerySet: Filtered and optimized review queryset
+        """
+        from core.models import Review
+        from django.db.models import Q
+        
+        user_id = self.kwargs.get('user_id')
+        
+        # Base queryset: all reviews where user is the reviewee
+        queryset = Review.objects.filter(reviewee_id=user_id)
+        
+        # Optimize queries with select_related
+        queryset = queryset.select_related(
+            'reviewer',
+            'booking__service',
+            'booking__student',
+            'booking__provider'
+        )
+        
+        # Apply role filter if provided
+        role_filter = self.request.query_params.get('role')
+        if role_filter:
+            if role_filter == 'provider':
+                # Filter for reviews where user was the provider
+                queryset = queryset.filter(booking__provider_id=user_id)
+            elif role_filter == 'student':
+                # Filter for reviews where user was the student
+                queryset = queryset.filter(booking__student_id=user_id)
+        
+        # Apply minimum rating filter if provided
+        min_rating = self.request.query_params.get('min_rating')
+        if min_rating:
+            try:
+                min_rating_int = int(min_rating)
+                if 1 <= min_rating_int <= 5:
+                    queryset = queryset.filter(rating__gte=min_rating_int)
+            except ValueError:
+                pass  # Ignore invalid min_rating values
+        
+        # Apply sorting
+        sort_param = self.request.query_params.get('sort', 'date_desc')
+        
+        if sort_param == 'rating_desc':
+            queryset = queryset.order_by('-rating', '-created_at')
+        elif sort_param == 'rating_asc':
+            queryset = queryset.order_by('rating', '-created_at')
+        else:  # Default: date_desc
+            queryset = queryset.order_by('-created_at')
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Handle GET request for user reviews.
+        
+        Returns paginated reviews with statistics for each role.
+        """
+        from django.shortcuts import get_object_or_404
+        from django.db.models import Avg, Count
+        from core.models import Review
+        
+        user_id = self.kwargs.get('user_id')
+        
+        # Verify user exists
+        get_object_or_404(User, pk=user_id)
+        
+        # Get filtered queryset
+        queryset = self.get_queryset()
+        
+        # Calculate statistics for each role
+        # Provider reviews: reviews where user was the provider
+        provider_reviews = Review.objects.filter(
+            reviewee_id=user_id,
+            booking__provider_id=user_id
+        )
+        
+        # Student reviews: reviews where user was the student
+        student_reviews = Review.objects.filter(
+            reviewee_id=user_id,
+            booking__student_id=user_id
+        )
+        
+        # Calculate provider statistics
+        provider_stats = provider_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id')
+        )
+        
+        provider_distribution_data = provider_reviews.values('rating').annotate(count=Count('id'))
+        provider_distribution = {str(i): 0 for i in range(1, 6)}
+        for item in provider_distribution_data:
+            provider_distribution[str(item['rating'])] = item['count']
+        
+        # Calculate student statistics
+        student_stats = student_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id')
+        )
+        
+        student_distribution_data = student_reviews.values('rating').annotate(count=Count('id'))
+        student_distribution = {str(i): 0 for i in range(1, 6)}
+        for item in student_distribution_data:
+            student_distribution[str(item['rating'])] = item['count']
+        
+        # Build statistics response
+        statistics = {
+            'as_provider': {
+                'average_rating': round(provider_stats['average_rating'] or 0, 2),
+                'total_reviews': provider_stats['total_reviews'],
+                'rating_distribution': provider_distribution
+            },
+            'as_student': {
+                'average_rating': round(student_stats['average_rating'] or 0, 2),
+                'total_reviews': student_stats['total_reviews'],
+                'rating_distribution': student_distribution
+            }
+        }
+        
+        # Apply pagination
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context={'request': request})
+            response = self.get_paginated_response(serializer.data)
+            response.data['statistics'] = statistics
+            return response
+        
+        # Fallback without pagination
+        serializer = self.get_serializer(queryset, many=True, context={'request': request})
+        return Response({
+            'results': serializer.data,
+            'count': queryset.count(),
+            'statistics': statistics
+        }, status=status.HTTP_200_OK)
+

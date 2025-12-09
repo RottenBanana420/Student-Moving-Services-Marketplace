@@ -1972,3 +1972,101 @@ class ServiceReviewSerializer(serializers.ModelSerializer):
     def get_booking_reference(self, obj):
         return str(obj.booking.id)
 
+
+# ============================================================================
+# User Reviews Serializers
+# ============================================================================
+
+class UserReviewerSerializer(serializers.ModelSerializer):
+    """
+    Serializer for reviewer information in user reviews endpoint.
+    
+    Provides essential reviewer details for transparency.
+    
+    Fields:
+    - id: Reviewer user ID
+    - email: Reviewer email address
+    - user_type: Reviewer type (student/provider)
+    """
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'user_type']
+        read_only_fields = fields
+
+
+class UserReviewSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user reviews endpoint with bidirectional context.
+    
+    Displays reviews received by a user with context about the role
+    (as provider or as student) in which they received the review.
+    
+    Fields:
+    - id: Review ID
+    - rating: Review rating (1-5)
+    - comment: Review text
+    - created_at: Review creation timestamp
+    - reviewer: Nested reviewer information
+    - review_context: Role context ('as_provider' or 'as_student')
+    - service_name: Service name (for provider reviews)
+    """
+    
+    reviewer = UserReviewerSerializer(read_only=True)
+    review_context = serializers.SerializerMethodField()
+    service_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        from core.models import Review
+        model = Review
+        fields = [
+            'id',
+            'rating',
+            'comment',
+            'created_at',
+            'reviewer',
+            'review_context',
+            'service_name'
+        ]
+        read_only_fields = fields
+    
+    def get_review_context(self, obj):
+        """
+        Determine the context in which the review was received.
+        
+        Logic:
+        - If reviewee was the provider in the booking -> 'as_provider'
+        - If reviewee was the student in the booking -> 'as_student'
+        
+        Args:
+            obj: Review instance
+            
+        Returns:
+            str: 'as_provider' or 'as_student'
+        """
+        # Check if reviewee is the provider in the booking
+        if obj.reviewee_id == obj.booking.provider_id:
+            return 'as_provider'
+        # Otherwise, reviewee is the student in the booking
+        elif obj.reviewee_id == obj.booking.student_id:
+            return 'as_student'
+        else:
+            # This shouldn't happen due to model validation, but handle gracefully
+            return 'unknown'
+    
+    def get_service_name(self, obj):
+        """
+        Get the service name for the review.
+        
+        For provider reviews, this shows which service was reviewed.
+        For student reviews, this may be less relevant but still informative.
+        
+        Args:
+            obj: Review instance
+            
+        Returns:
+            str: Service name or None
+        """
+        if obj.booking and obj.booking.service:
+            return obj.booking.service.service_name
+        return None
