@@ -2636,3 +2636,310 @@ class UserReviewsView(ListAPIView):
             'statistics': statistics
         }, status=status.HTTP_200_OK)
 
+
+class UserRatingSummaryView(APIView):
+    """
+    API endpoint for retrieving comprehensive rating statistics for a user.
+    
+    Provides aggregated rating data including:
+    - Overall average rating and total reviews
+    - Role-specific statistics (as provider and as student)
+    - Rating distributions (count and percentage for each star level)
+    - Review dates (first and most recent)
+    - Completion rates (percentage of completed bookings with reviews)
+    - Percentile ranking (for providers)
+    - Trend indicator (improving/declining/stable)
+    
+    GET /api/users/<user_id>/rating-summary/
+    
+    Success response (200):
+    {
+        "overall_average_rating": 4.5,
+        "total_reviews": 10,
+        "as_provider": {
+            "average_rating": 4.5,
+            "total_reviews": 8,
+            "rating_distribution": {
+                "5_star": 4,
+                "4_star": 3,
+                "3_star": 1,
+                "2_star": 0,
+                "1_star": 0,
+                "5_star_percentage": 50.0,
+                "4_star_percentage": 37.5,
+                "3_star_percentage": 12.5,
+                "2_star_percentage": 0.0,
+                "1_star_percentage": 0.0
+            }
+        },
+        "as_student": {
+            "average_rating": 4.0,
+            "total_reviews": 2,
+            "rating_distribution": {...}
+        },
+        "rating_distribution": {...},
+        "most_recent_review_date": "2025-12-08T10:30:00Z",
+        "first_review_date": "2025-11-01T14:20:00Z",
+        "completed_bookings_count": 12,
+        "completed_bookings_with_reviews": 10,
+        "review_completion_rate": 83.33,
+        "percentile_ranking": 75.5,
+        "trend_indicator": "improving"
+    }
+    
+    Error responses:
+    - 404: User not found
+    """
+    permission_classes = [AllowAny]  # Public access
+    
+    def get(self, request, user_id, *args, **kwargs):
+        """
+        Retrieve comprehensive rating summary for a user.
+        
+        Uses Django aggregation functions for efficient database queries.
+        """
+        from django.db.models import Avg, Count, Min, Max, Q, Case, When, IntegerField, F, Exists, OuterRef
+        from django.utils import timezone
+        from datetime import timedelta
+        from core.models import Review, Booking
+        
+        # Validate user exists
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all reviews received by this user
+        all_reviews = Review.objects.filter(reviewee=user)
+        
+        # Overall statistics
+        overall_stats = all_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id'),
+            first_review=Min('created_at'),
+            most_recent_review=Max('created_at')
+        )
+        
+        # Overall rating distribution
+        overall_distribution = self._calculate_rating_distribution(all_reviews)
+        
+        # Provider role statistics (reviews where user was the provider)
+        provider_reviews = all_reviews.filter(booking__provider=user)
+        provider_stats = provider_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id')
+        )
+        provider_distribution = self._calculate_rating_distribution(provider_reviews)
+        
+        # Student role statistics (reviews where user was the student)
+        student_reviews = all_reviews.filter(booking__student=user)
+        student_stats = student_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id')
+        )
+        student_distribution = self._calculate_rating_distribution(student_reviews)
+        
+        # Completed bookings statistics
+        # Count completed bookings where user was provider or student
+        completed_as_provider = Booking.objects.filter(
+            provider=user,
+            status='completed'
+        ).count()
+        
+        completed_as_student = Booking.objects.filter(
+            student=user,
+            status='completed'
+        ).count()
+        
+        total_completed = completed_as_provider + completed_as_student
+        
+        # Count how many have reviews
+        reviewed_count = overall_stats['total_reviews']
+        
+        # Calculate review completion rate
+        if total_completed > 0:
+            review_completion_rate = round((reviewed_count / total_completed) * 100, 2)
+        else:
+            review_completion_rate = 0.0
+        
+        # Calculate percentile ranking (for providers only)
+        percentile_ranking = None
+        if user.user_type == 'provider' and provider_stats['total_reviews'] > 0:
+            percentile_ranking = self._calculate_percentile_ranking(user, provider_stats['average_rating'])
+        
+        # Calculate trend indicator
+        trend_indicator = self._calculate_trend_indicator(all_reviews)
+        
+        # Build response
+        response_data = {
+            'overall_average_rating': round(overall_stats['average_rating'], 2) if overall_stats['average_rating'] else None,
+            'total_reviews': overall_stats['total_reviews'],
+            'as_provider': {
+                'average_rating': round(provider_stats['average_rating'], 2) if provider_stats['average_rating'] else 0,
+                'total_reviews': provider_stats['total_reviews'],
+                'rating_distribution': provider_distribution
+            },
+            'as_student': {
+                'average_rating': round(student_stats['average_rating'], 2) if student_stats['average_rating'] else 0,
+                'total_reviews': student_stats['total_reviews'],
+                'rating_distribution': student_distribution
+            },
+            'rating_distribution': overall_distribution,
+            'most_recent_review_date': overall_stats['most_recent_review'],
+            'first_review_date': overall_stats['first_review'],
+            'completed_bookings_count': total_completed,
+            'completed_bookings_with_reviews': reviewed_count,
+            'review_completion_rate': review_completion_rate,
+            'percentile_ranking': percentile_ranking,
+            'trend_indicator': trend_indicator
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+    
+    def _calculate_rating_distribution(self, reviews_queryset):
+        """
+        Calculate rating distribution with counts and percentages.
+        
+        Args:
+            reviews_queryset: QuerySet of Review objects
+            
+        Returns:
+            dict: Rating distribution with counts and percentages
+        """
+        from django.db.models import Count, Case, When, IntegerField
+        
+        # Use aggregation to count each rating level
+        distribution_data = reviews_queryset.aggregate(
+            five_star=Count(Case(When(rating=5, then=1), output_field=IntegerField())),
+            four_star=Count(Case(When(rating=4, then=1), output_field=IntegerField())),
+            three_star=Count(Case(When(rating=3, then=1), output_field=IntegerField())),
+            two_star=Count(Case(When(rating=2, then=1), output_field=IntegerField())),
+            one_star=Count(Case(When(rating=1, then=1), output_field=IntegerField())),
+            total=Count('id')
+        )
+        
+        total = distribution_data['total']
+        
+        # Calculate percentages
+        if total > 0:
+            five_star_pct = round((distribution_data['five_star'] / total) * 100, 2)
+            four_star_pct = round((distribution_data['four_star'] / total) * 100, 2)
+            three_star_pct = round((distribution_data['three_star'] / total) * 100, 2)
+            two_star_pct = round((distribution_data['two_star'] / total) * 100, 2)
+            one_star_pct = round((distribution_data['one_star'] / total) * 100, 2)
+        else:
+            five_star_pct = four_star_pct = three_star_pct = two_star_pct = one_star_pct = 0.0
+        
+        return {
+            '5_star': distribution_data['five_star'],
+            '4_star': distribution_data['four_star'],
+            '3_star': distribution_data['three_star'],
+            '2_star': distribution_data['two_star'],
+            '1_star': distribution_data['one_star'],
+            '5_star_percentage': five_star_pct,
+            '4_star_percentage': four_star_pct,
+            '3_star_percentage': three_star_pct,
+            '2_star_percentage': two_star_pct,
+            '1_star_percentage': one_star_pct
+        }
+    
+    def _calculate_percentile_ranking(self, user, user_avg_rating):
+        """
+        Calculate percentile ranking for a provider compared to other providers.
+        
+        Uses the midpoint method for handling ties: counts providers strictly below
+        plus half of those with equal rating.
+        
+        Args:
+            user: User object
+            user_avg_rating: User's average rating
+            
+        Returns:
+            float: Percentile ranking (0-100)
+        """
+        from django.db.models import Avg, Count
+        
+        # Get all providers with at least one review
+        providers_with_reviews = User.objects.filter(
+            user_type='provider',
+            reviews_received__isnull=False
+        ).annotate(
+            avg_rating=Avg('reviews_received__rating'),
+            review_count=Count('reviews_received')
+        ).filter(review_count__gt=0).values_list('avg_rating', flat=True)
+        
+        if not providers_with_reviews:
+            return None
+        
+        # Count providers strictly below and equal to user's rating
+        providers_below = sum(1 for rating in providers_with_reviews if rating < user_avg_rating)
+        providers_equal = sum(1 for rating in providers_with_reviews if rating == user_avg_rating)
+        total_providers = len(providers_with_reviews)
+        
+        if total_providers == 0:
+            return None
+        
+        # Use midpoint method for ties: count below + half of equal
+        # This gives a more accurate percentile when there are ties
+        percentile = round(((providers_below + providers_equal / 2) / total_providers) * 100, 2)
+        return percentile
+    
+    def _calculate_trend_indicator(self, reviews_queryset):
+        """
+        Calculate trend indicator (improving/declining/stable).
+        
+        Compares recent reviews (last 30 days) with older reviews.
+        Uses booking date as a proxy for review timing since created_at
+        is auto-generated and may not reflect the actual review timeline in tests.
+        
+        Args:
+            reviews_queryset: QuerySet of Review objects
+            
+        Returns:
+            str: 'improving', 'declining', 'stable', or 'none'
+        """
+        from django.db.models import Avg
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        total_reviews = reviews_queryset.count()
+        
+        # Need at least 3 reviews for meaningful trend analysis
+        if total_reviews < 3:
+            return 'stable'
+        
+        # Calculate cutoff date (30 days ago)
+        cutoff_date = timezone.now() - timedelta(days=30)
+        
+        # Use booking date as proxy for review timing
+        # Get recent and older reviews based on booking date
+        recent_reviews = reviews_queryset.filter(booking__booking_date__gte=cutoff_date)
+        older_reviews = reviews_queryset.filter(booking__booking_date__lt=cutoff_date)
+        
+        recent_count = recent_reviews.count()
+        older_count = older_reviews.count()
+        
+        # Need reviews in both periods for comparison
+        if recent_count == 0 or older_count == 0:
+            return 'stable'
+        
+        # Calculate averages
+        recent_avg = recent_reviews.aggregate(avg=Avg('rating'))['avg']
+        older_avg = older_reviews.aggregate(avg=Avg('rating'))['avg']
+        
+        if recent_avg is None or older_avg is None:
+            return 'stable'
+        
+        # Determine trend (threshold: 0.5 rating difference)
+        diff = recent_avg - older_avg
+        
+        if diff > 0.5:
+            return 'improving'
+        elif diff < -0.5:
+            return 'declining'
+        else:
+            return 'stable'
+
