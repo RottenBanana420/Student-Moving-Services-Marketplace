@@ -104,6 +104,30 @@ class User(AbstractUser):
         help_text=_('Indicates whether a service provider has been verified.')
     )
     
+    avg_rating_as_provider = models.DecimalField(
+        _('average rating as provider'),
+        max_digits=3,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[
+            MinValueValidator(Decimal('0.00'), message=_('Rating cannot be negative.')),
+            MaxValueValidator(Decimal('5.00'), message=_('Rating cannot exceed 5.00.'))
+        ],
+        help_text=_('Average rating when acting as a service provider.')
+    )
+    
+    avg_rating_as_student = models.DecimalField(
+        _('average rating as student'),
+        max_digits=3,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[
+            MinValueValidator(Decimal('0.00'), message=_('Rating cannot be negative.')),
+            MaxValueValidator(Decimal('5.00'), message=_('Rating cannot exceed 5.00.'))
+        ],
+        help_text=_('Average rating when acting as a student.')
+    )
+    
     created_at = models.DateTimeField(
         _('created at'),
         auto_now_add=True,
