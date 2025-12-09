@@ -1916,5 +1916,59 @@ class BookingHistorySerializer(serializers.ModelSerializer):
                 # Providers don't need to see provider field (that's themselves)
                 data.pop('provider', None)
         
+
         return data
+
+
+# ============================================================================
+# Service Review Serializers
+# ============================================================================
+
+class ReviewerSerializer(serializers.ModelSerializer):
+    """
+    Serializer for reviewer information.
+    Exposes only safe fields (no contact info).
+    """
+    profile_image_url = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'university_name', 'user_type', 'profile_image_url']
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+             request = self.context.get('request')
+             if request is not None:
+                return request.build_absolute_uri(obj.profile_image.url)
+             return obj.profile_image.url
+        return None
+
+    def get_full_name(self, obj):
+        # Return first name + last initial, or username/email part if empty
+        full = obj.get_full_name()
+        if full:
+             return full
+        return obj.email.split('@')[0]
+
+
+class ServiceReviewSerializer(serializers.ModelSerializer):
+    """
+    Serializer for service reviews.
+    """
+    reviewer = ReviewerSerializer(read_only=True)
+    is_verified_booking = serializers.SerializerMethodField()
+    booking_reference = serializers.SerializerMethodField()
+
+    class Meta:
+        from core.models import Review
+        model = Review
+        fields = ['id', 'rating', 'comment', 'created_at', 'reviewer', 'booking', 'booking_reference', 'is_verified_booking']
+
+    def get_is_verified_booking(self, obj):
+        # All reviews in this system are tied to a completed booking
+        return True
+        
+    def get_booking_reference(self, obj):
+        return str(obj.booking.id)
 

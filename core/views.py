@@ -2297,7 +2297,112 @@ class ReviewCreateView(generics.CreateAPIView):
                 f"User: {request.user.email}, "
                 f"Booking ID: {request.data.get('booking_id')}"
             )
+
             return Response(
                 {'detail': 'This booking has already been reviewed. Each booking can only be reviewed once.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+
+class ServiceReviewsView(ListAPIView):
+    """
+    API endpoint for retrieving reviews for a specific service.
+    
+    GET /api/reviews/service/<service_id>/
+    
+    Publicly accessible.
+    Returns reviews ordered by creation date (newest first).
+    Includes rating statistics.
+    Supports filtering by rating and ordering.
+    """
+    permission_classes = [AllowAny]
+    pagination_class = PageNumberPagination
+    
+    @property
+    def serializer_class(self):
+        from .serializers import ServiceReviewSerializer
+        return ServiceReviewSerializer
+
+    def get_queryset(self):
+        from django.shortcuts import get_object_or_404
+        from core.models import MovingService, Review
+        
+        service_id = self.kwargs['service_id']
+        
+        if getattr(self, 'swagger_fake_view', False):
+             return Review.objects.none()
+             
+        # Ensure service exists
+        get_object_or_404(MovingService, pk=service_id)
+        
+        # Base queryset
+        queryset = Review.objects.filter(booking__service_id=service_id)
+        
+        # Filtering
+        rating = self.request.query_params.get('rating')
+        if rating and rating.isdigit():
+            queryset = queryset.filter(rating=int(rating))
+            
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        if date_from:
+            queryset = queryset.filter(created_at__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__lte=date_to)
+
+        # Ordering
+        ordering = self.request.query_params.get('ordering', '-created_at')
+        valid_ordering_fields = ['rating', '-rating', 'created_at', '-created_at']
+        if ordering in valid_ordering_fields:
+            queryset = queryset.order_by(ordering)
+        else:
+            queryset = queryset.order_by('-created_at')
+            
+        # Optimization
+        queryset = queryset.select_related('reviewer', 'booking')
+            
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        from django.db.models import Count, Avg
+        from core.models import Review
+        
+        service_id = self.kwargs['service_id']
+        # Calculate global stats for the service (ignoring pagination)
+        # Note: We might want to respect filters? 
+        # Requirement says "Calculate and return rating distribution... Return average rating for the service"
+        # "for the service" implies ALL reviews for the service.
+        all_reviews = Review.objects.filter(booking__service_id=service_id)
+        
+        stats = all_reviews.aggregate(
+            average_rating=Avg('rating'),
+            total_reviews=Count('id')
+        )
+        
+        distribution_data = all_reviews.values('rating').annotate(count=Count('id'))
+        distribution = {str(i): 0 for i in range(1, 6)}
+        for item in distribution_data:
+            distribution[str(item['rating'])] = item['count']
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data['statistics'] = {
+                'average_rating': round(stats['average_rating'] or 0, 2),
+                'total_reviews': stats['total_reviews'],
+                'rating_distribution': distribution
+            }
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'results': serializer.data,
+            'statistics': {
+                'average_rating': round(stats['average_rating'] or 0, 2),
+                'total_reviews': stats['total_reviews'],
+                'rating_distribution': distribution
+            }
+        })

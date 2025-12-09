@@ -35,7 +35,8 @@ from core.views import (
     BookingStatusUpdateView,
     BookingCalendarView,
     BookingHistoryView,
-    ReviewCreateView
+    ReviewCreateView,
+    ServiceReviewsView
 )
 
 
@@ -61,6 +62,7 @@ urlpatterns = [
     path('api/bookings/', BookingCreateView.as_view(), name='booking_create'),
     
     # Review endpoints
+    path('api/reviews/service/<int:service_id>/', ServiceReviewsView.as_view(), name='service_reviews'),
     path('api/reviews/', ReviewCreateView.as_view(), name='review_create'),
 
 
