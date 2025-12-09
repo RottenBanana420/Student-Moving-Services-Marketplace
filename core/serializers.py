@@ -1563,6 +1563,106 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         return review
 
 
+class ReviewUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for updating existing reviews.
+    
+    Supports partial updates (PATCH) for rating and comment fields only.
+    Immutable fields (reviewer, reviewee, booking) are read-only.
+    
+    Fields:
+    - rating: Optional, integer from 1-5
+    - comment: Optional, text feedback (cannot be empty if provided)
+    
+    Read-only fields (cannot be changed):
+    - id: Review ID
+    - reviewer: Original reviewer
+    - reviewee: Original reviewee
+    - booking: Original booking
+    - created_at: Original creation timestamp
+    - updated_at: Auto-updated on save
+    """
+    
+    class Meta:
+        from core.models import Review
+        model = Review
+        fields = ['id', 'rating', 'comment', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_rating(self, value):
+        """
+        Validate rating is integer between 1-5.
+        
+        Args:
+            value: Rating value
+            
+        Returns:
+            int: Validated rating
+            
+        Raises:
+            ValidationError: If rating is not between 1-5
+        """
+        # Check if it's an integer
+        if not isinstance(value, int):
+            raise serializers.ValidationError(
+                "Rating must be an integer."
+            )
+        
+        # Check range (1-5)
+        if value < 1 or value > 5:
+            raise serializers.ValidationError(
+                "Rating must be between 1 and 5."
+            )
+        
+        return value
+    
+    def validate_comment(self, value):
+        """
+        Validate comment is not empty or whitespace-only.
+        
+        Args:
+            value: Comment text
+            
+        Returns:
+            str: Validated comment
+            
+        Raises:
+            ValidationError: If comment is empty
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Comment cannot be empty."
+            )
+        
+        return value.strip()
+    
+    def update(self, instance, validated_data):
+        """
+        Update review with validated data.
+        
+        Only updates rating and/or comment fields.
+        Immutable fields are ignored even if provided.
+        
+        Args:
+            instance: Review instance to update
+            validated_data: Validated data from serializer
+            
+        Returns:
+            Review: Updated review instance
+        """
+        # Update only allowed fields
+        if 'rating' in validated_data:
+            instance.rating = validated_data['rating']
+        
+        if 'comment' in validated_data:
+            instance.comment = validated_data['comment']
+        
+        # Save the instance (updated_at will auto-update)
+        instance.save()
+        
+        return instance
+
+
 # ============================================================================
 # Booking Calendar Serializers
 # ============================================================================

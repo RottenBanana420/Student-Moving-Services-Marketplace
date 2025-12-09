@@ -2304,6 +2304,119 @@ class ReviewCreateView(generics.CreateAPIView):
             )
 
 
+class ReviewUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    API endpoint for retrieving, updating, and deleting reviews.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Only original reviewer can update/delete their review
+    - Supports partial updates (PATCH)
+    - Allows updating rating and/or comment
+    - Triggers rating recalculation via signals
+    - Hard delete (permanent removal)
+    
+    GET /api/reviews/<review_id>/
+    Headers: Authorization: Bearer <access_token>
+    
+    Success response (200):
+    {
+        "id": 1,
+        "rating": 5,
+        "comment": "Great service!",
+        "created_at": "2025-12-08T16:00:00Z",
+        "updated_at": "2025-12-09T10:00:00Z"
+    }
+    
+    PATCH /api/reviews/<review_id>/
+    Headers: Authorization: Bearer <access_token>
+    Request body: {
+        "rating": 5,  # Optional
+        "comment": "Updated comment"  # Optional
+    }
+    
+    Success response (200):
+    {
+        "id": 1,
+        "rating": 5,
+        "comment": "Updated comment",
+        "created_at": "2025-12-08T16:00:00Z",
+        "updated_at": "2025-12-09T10:00:00Z"
+    }
+    
+    DELETE /api/reviews/<review_id>/
+    Headers: Authorization: Bearer <access_token>
+    
+    Success response (204):
+    No content
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 403: User attempting to update/delete someone else's review
+    - 404: Review not found
+    - 400: Invalid data (validation errors for PATCH)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """Return the appropriate serializer class."""
+        from .serializers import ReviewUpdateSerializer
+        return ReviewUpdateSerializer
+    
+    def get_queryset(self):
+        """Return queryset for reviews."""
+        from core.models import Review
+        return Review.objects.all()
+    
+    def get_object(self):
+        """
+        Override to add authorization check.
+        
+        Only the original reviewer can retrieve, update, or delete their review.
+        
+        Returns:
+            Review: Review instance if authorized
+            
+        Raises:
+            PermissionDenied: If user is not the original reviewer
+            NotFound: If review doesn't exist
+        """
+        from rest_framework.exceptions import PermissionDenied
+        
+        # Get the review object
+        obj = super().get_object()
+        
+        # Check if current user is the original reviewer
+        if obj.reviewer != self.request.user:
+            raise PermissionDenied('You can only access your own reviews.')
+        
+        return obj
+    
+    def perform_update(self, serializer):
+        """
+        Save the updated review.
+        
+        The post_save signal will handle rating recalculation.
+        
+        Args:
+            serializer: Validated serializer instance
+        """
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """
+        Delete the review.
+        
+        The post_delete signal will handle:
+        - Rating recalculation
+        - Service total_reviews decrement
+        
+        Args:
+            instance: Review instance to delete
+        """
+        instance.delete()
+
+
 class ServiceReviewsView(ListAPIView):
     """
     API endpoint for retrieving reviews for a specific service.

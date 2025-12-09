@@ -1255,6 +1255,12 @@ class Review(models.Model):
         help_text=_('Timestamp when the review was created')
     )
     
+    updated_at = models.DateTimeField(
+        _('updated at'),
+        auto_now=True,
+        help_text=_('Timestamp when the review was last updated')
+    )
+    
     class Meta:
         verbose_name = _('review')
         verbose_name_plural = _('reviews')
