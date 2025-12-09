@@ -1359,6 +1359,31 @@ class BookingCreateView(APIView):
         )
         
         if not serializer.is_valid():
+            # Check for double booking validation error (from model.clean)
+            # This handles the case where clean() is called during serializer validation
+            errors = serializer.errors
+            booking_conflict = False
+            
+            # Check booking_date errors
+            if 'booking_date' in errors:
+                for error in errors['booking_date']:
+                    if 'already booked' in str(error).lower():
+                        booking_conflict = True
+                        break
+            
+            # Check non_field_errors (UniqueConstraint usually goes here or field errors)
+            if not booking_conflict and 'non_field_errors' in errors:
+                for error in errors['non_field_errors']:
+                    if 'unique' in str(error).lower() or 'already booked' in str(error).lower():
+                        booking_conflict = True
+                        break
+            
+            if booking_conflict:
+                return Response(
+                    {'detail': 'This service is already booked for this time slot.'},
+                    status=status.HTTP_409_CONFLICT
+                )
+                
             return Response(
                 serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST

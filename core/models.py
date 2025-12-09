@@ -597,19 +597,20 @@ class Booking(models.Model):
                 pass
         
         # Check for overlapping bookings (application-level check)
-        # This handles sequential logic and works with lock in view
-        qs = Booking.objects.filter(
-            service=self.service, 
-            booking_date=self.booking_date
-        ).exclude(status__in=['cancelled', 'completed']) # Completed bookings might blocking too, usually completed implies "past" but blocked.
-        # Requirement: "System prevents double-booking". 
-        # If it is 'pending' or 'confirmed' or 'completed', it blocks.
-        
-        if self.pk:
-            qs = qs.exclude(pk=self.pk)
+        # Verify service exists before checking
+        if hasattr(self, 'service_id') and self.service_id and self.booking_date:
+            qs = Booking.objects.filter(
+                service_id=self.service_id, 
+                booking_date=self.booking_date
+            ).exclude(status__in=['cancelled', 'completed']) # Completed bookings might blocking too, usually completed implies "past" but blocked.
+            # Requirement: "System prevents double-booking". 
+            # If it is 'pending' or 'confirmed' or 'completed', it blocks.
             
-        if qs.exists():
-             raise ValidationError({'booking_date': _('This service is already booked for this time slot.')})
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+                
+            if qs.exists():
+                 raise ValidationError({'booking_date': _('This service is already booked for this time slot.')})
     
     def can_transition_to(self, new_status, current_time=None):
         """

@@ -246,11 +246,15 @@ class BookingStatusValidationTests(TestCase):
         booking_date = timezone.now() + timedelta(days=1)
         
         for idx, status in enumerate(valid_statuses):
+            # Use different times to avoid uniqueness constraint violations
+            # Use 4 hour intervals to safely clear any overlap windows
+            current_booking_date = booking_date + timedelta(hours=idx * 4)
+            
             booking = Booking.objects.create(
                 student=self.student,
                 provider=self.provider,
                 service=self.service,
-                booking_date=booking_date,
+                booking_date=current_booking_date,
                 pickup_location=f'{idx} Campus St',
                 dropoff_location=f'{idx} Dorm Ave',
                 status=status,
