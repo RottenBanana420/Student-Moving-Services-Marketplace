@@ -13,7 +13,7 @@ This marketplace platform facilitates connections between students requiring mov
 - **Custom User Model** - Extended Django user with student/provider types, phone validation, and profile images
 - **MovingService Model** - Service listings with pricing, ratings, and availability tracking
 - **Booking Model** - Complete booking system with status transitions and validation
-- **Review Model** - Rating and review system for services
+- **Review Model** - Bidirectional review system (Student↔Provider) with constraints and summary stats
 - **Furniture Marketplace** - Buy/sell furniture with transaction handling and escrow support
 - **Custom Validators** - Phone number and image validation with comprehensive error handling
 
@@ -190,7 +190,7 @@ The test suite includes comprehensive tests covering:
 - ✅ Rate Limiting (Login & Refresh)
 - ✅ Concurrent Registration Handling
 
-#### Service Management
+#### Service Management Tests
 
 - ✅ Service Creation (Provider Verification)
 - ✅ Service Listing (Filtering, Sorting, Pagination)
@@ -251,6 +251,24 @@ Database setup scripts are available in the `scripts/` directory:
 - `setup_db.sql` - Complete SQL setup script
 - `create_database.sql` - Database creation script
 - `grant_test_permissions.sql` - Test permissions script
+
+### Management Commands
+
+The project includes custom management commands for maintenance:
+
+```bash
+# Recalculate all ratings (Service and User)
+python manage.py recalculate_ratings
+
+# Recalculate only service ratings
+python manage.py recalculate_ratings --services-only
+
+# Recalculate only user ratings
+python manage.py recalculate_ratings --users-only
+
+# Dry run mode (see what would change without saving)
+python manage.py recalculate_ratings --dry-run
+```
 
 ## 📊 Data Models
 
@@ -407,6 +425,17 @@ Complete system for buying and selling furniture:
 | GET | `/api/bookings/calendar/` | Get provider calendar | Yes (Provider) |
 | PUT | `/api/bookings/<id>/status/` | Update booking status | Yes |
 
+### Review & Rating System
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/reviews/` | Create a new review | Yes |
+| PUT/PATCH | `/api/reviews/<id>/` | Update a review | Yes (Owner) |
+| DELETE | `/api/reviews/<id>/` | Delete a review | Yes (Owner) |
+| GET | `/api/reviews/service/<id>/` | List reviews for a service | No |
+| GET | `/api/reviews/user/<id>/` | List reviews for a user | No |
+| GET | `/api/users/<id>/rating-summary/` | Get detailed user rating stats | No |
+
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
 ## 🔧 Configuration
@@ -560,7 +589,8 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Comprehensive test suite (Pytest integration)
 - ✅ Documentation complete
 - ✅ Booking Management (List, Update, Calendar)
-- 🚧 Review System API implementation
+- ✅ Review System API implementation (Create, Update, Delete, Summary)
+- ✅ Bidirectional Ratings (Provider & Student stats)
 - 🚧 Frontend interface
 
 ## 🎯 Next Steps
@@ -571,7 +601,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 4. ✅ ~~Implement service management~~ (Complete)
 5. ✅ ~~Implement booking creation~~ (Complete)
 6. ✅ ~~Implement Booking Management endpoints (List/Update/Cancel)~~ (Complete)
-7. Implement Review System endpoints
+7. ✅ ~~Implement Review System endpoints~~ (Complete)
 8. Build frontend interface
 9. Add payment integration
 10. Deploy to production

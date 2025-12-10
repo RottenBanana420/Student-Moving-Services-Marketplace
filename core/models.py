@@ -509,13 +509,9 @@ class Booking(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['booking_date']),
         ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=['service', 'booking_date'],
-                name='unique_booking_per_service_slot',
-                condition=~models.Q(status='cancelled')
-            )
-        ]
+        # Note: Double-booking prevention is handled at the application level
+        # MySQL does not support conditional unique constraints
+        # constraints = []
     
     def __str__(self):
         """Return meaningful string representation."""
@@ -538,11 +534,14 @@ class Booking(models.Model):
         """
         super().clean()
         
-        # Validate student is a student type user
-        if self.student_id and self.student and not self.student.is_student():
+        # Validate student and provider are different users
+        # This prevents self-booking and ensures valid roles without strictly restricting
+        # the 'student' field to only 'student' user_type (supporting dual-role users)
+        if self.student_id and self.provider_id and self.student_id == self.provider_id:
             raise ValidationError({
-                'student': _('Only users with user_type="student" can make bookings.')
+                'student': _('Student and provider cannot be the same user.')
             })
+        
         
         # Validate provider is a provider type user
         if self.provider_id and self.provider and not self.provider.is_provider():
@@ -1227,11 +1226,11 @@ class Review(models.Model):
         help_text=_('User receiving the review')
     )
     
-    booking = models.OneToOneField(
+    booking = models.ForeignKey(
         Booking,
         on_delete=models.CASCADE,
-        related_name='review',
-        help_text=_('Booking being reviewed (one review per booking)')
+        related_name='reviews',
+        help_text=_('Booking being reviewed')
     )
     
     rating = models.PositiveSmallIntegerField(
@@ -1271,6 +1270,12 @@ class Review(models.Model):
             models.Index(fields=['booking']),
             models.Index(fields=['rating']),
             models.Index(fields=['created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reviewer', 'booking'],
+                name='unique_reviewer_per_booking'
+            )
         ]
     
     def __str__(self):

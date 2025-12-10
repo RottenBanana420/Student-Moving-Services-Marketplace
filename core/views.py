@@ -1205,7 +1205,7 @@ class ServiceDetailView(generics.RetrieveAPIView):
         ).prefetch_related(
             # Prefetch reviews through bookings
             Prefetch(
-                'bookings__review',
+                'bookings__reviews',
                 queryset=Review.objects.select_related('reviewer').order_by('-created_at')
             )
         )
@@ -2241,15 +2241,72 @@ class ReviewCreateView(generics.CreateAPIView):
             Response: Created review data or error
         """
         from rest_framework.exceptions import NotFound, PermissionDenied
-        from django.db import transaction
+        from django.db import transaction, IntegrityError
+        from .models import Booking, Review, User, MovingService
+        from django.db.utils import OperationalError
         
         serializer = self.get_serializer(data=request.data, context={'request': request})
         
         try:
+            # Validate input data first
             serializer.is_valid(raise_exception=True)
+            booking_id = request.data.get('booking_id')
             
-            # Wrap in atomic transaction to handle IntegrityError properly
+            # Wrap in atomic transaction to handle IntegrityError properly and lock rows
             with transaction.atomic():
+                # Lock the booking row to serialize review creation for this booking
+                try:
+                    booking = None
+                    if booking_id:
+                        booking = Booking.objects.select_for_update().get(pk=booking_id)
+                        
+                        # PRE-LOCKING STRATEGY TO PREVENT DEADLOCKS
+                        # We must lock the Reviewee (User) and Service (if applicable) BEFORE
+                        # creating the Review. Creating a Review takes an implicit shared lock (S-lock)
+                        # on the foreign keys. The post_save signal then tries to take an exclusive lock (X-lock)
+                        # on the same rows to update ratings.
+                        # If two concurrent transactions both hold S-locks and want X-locks, we get a deadlock.
+                        # Taking X-locks upfront avoids this.
+                        
+                        reviewee_id = None
+                        if request.user.id == booking.student_id:
+                            reviewee_id = booking.provider_id
+                        elif request.user.id == booking.provider_id:
+                            reviewee_id = booking.student_id
+                            
+                        if reviewee_id:
+                            # Lock the reviewee
+                            User.objects.select_for_update().get(pk=reviewee_id)
+                            
+                            # If reviewee is provider (request.user is student), lock the service too
+                            # because the signal updates service rating
+                            if request.user.id == booking.student_id and booking.service_id:
+                                MovingService.objects.select_for_update().get(pk=booking.service_id)
+
+                except Booking.DoesNotExist:
+                     pass
+                except (User.DoesNotExist, MovingService.DoesNotExist):
+                     # Should not happen if referential integrity is maintained
+                     pass
+                
+                # Double check for duplicate review after acquiring lock
+                if booking_id and request.user.is_authenticated:
+                    existing_review = Review.objects.filter(
+                        booking_id=booking_id,
+                        reviewer=request.user
+                    ).exists()
+                    
+                    if existing_review:
+                        logger.warning(
+                            f"Review creation failed - duplicate review detected after lock. "
+                            f"User: {request.user.email}, "
+                            f"Booking ID: {booking_id}"
+                        )
+                        return Response(
+                            {'detail': 'This booking has already been reviewed. Each booking can only be reviewed once.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
                 self.perform_create(serializer)
             
             headers = self.get_success_headers(serializer.data)
@@ -2292,8 +2349,9 @@ class ReviewCreateView(generics.CreateAPIView):
             
         except IntegrityError as e:
             # Duplicate review (OneToOneField constraint) - return 400
+            # This is a fallback if the application-level check fails
             logger.warning(
-                f"Review creation failed - duplicate review. "
+                f"Review creation failed - duplicate review (IntegrityError). "
                 f"User: {request.user.email}, "
                 f"Booking ID: {request.data.get('booking_id')}"
             )
@@ -2301,6 +2359,14 @@ class ReviewCreateView(generics.CreateAPIView):
             return Response(
                 {'detail': 'This booking has already been reviewed. Each booking can only be reviewed once.'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except OperationalError:
+            # Handle potential remaining deadlocks gracefully
+            logger.error("Review creation failed - deadlock detected", exc_info=True)
+            return Response(
+                {'detail': 'System is busy, please try again.'},
+                status=status.HTTP_400_BAD_REQUEST  # or 503
             )
 
 

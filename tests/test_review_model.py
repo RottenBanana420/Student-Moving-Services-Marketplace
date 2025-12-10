@@ -198,14 +198,14 @@ class ReviewModelUniqueConstraintTests(TestCase):
             comment='First review'
         )
         
-        # Attempting to create another review for the same booking should fail
+        # Attempting to create another review from the SAME reviewer for the same booking should fail
         with self.assertRaises(IntegrityError):
             Review.objects.create(
-                reviewer=self.provider,
-                reviewee=self.student,
+                reviewer=self.student,  # Same reviewer
+                reviewee=self.provider,
                 booking=self.booking,
                 rating=4,
-                comment='Second review'
+                comment='Second review from same reviewer'
             )
     
     def test_different_bookings_can_have_reviews(self):
@@ -349,7 +349,7 @@ class ReviewModelForeignKeyTests(TestCase):
         )
         
         self.assertEqual(review.booking, self.booking)
-        self.assertEqual(review, self.booking.review)
+        self.assertIn(review, self.booking.reviews.all())
     
     def test_cascade_deletion_when_reviewer_deleted(self):
         """Review should be deleted when reviewer is deleted."""
