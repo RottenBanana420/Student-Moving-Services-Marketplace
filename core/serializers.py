@@ -2498,3 +2498,108 @@ class FurnitureItemCreateSerializer(serializers.ModelSerializer):
         
         return data
 
+
+class FurnitureBrowseSerializer(serializers.ModelSerializer):
+    """
+    Serializer for browsing furniture listings.
+    
+    Provides comprehensive listing information for public marketplace browsing.
+    Optimized for use with select_related('seller') and prefetch_related('images').
+    
+    Fields:
+    - id: Furniture item ID
+    - title: Item title
+    - description: Item description
+    - price: Item price
+    - condition: Item condition (new, like_new, good, fair, poor)
+    - category: Item category
+    - is_sold: Whether item has been sold
+    - created_at: Creation timestamp
+    - seller: Nested seller information (FurnitureSellerSerializer)
+    - primary_image: URL of the first image (primary display image)
+    - listing_age: Human-readable time since listing was created
+    """
+    
+    seller = FurnitureSellerSerializer(read_only=True)
+    primary_image = serializers.SerializerMethodField()
+    listing_age = serializers.SerializerMethodField()
+    
+    class Meta:
+        from core.models import FurnitureItem
+        model = FurnitureItem
+        fields = [
+            'id',
+            'title',
+            'description',
+            'price',
+            'condition',
+            'category',
+            'is_sold',
+            'created_at',
+            'seller',
+            'primary_image',
+            'listing_age'
+        ]
+        read_only_fields = fields
+    
+    def get_primary_image(self, obj):
+        """
+        Get the URL of the primary (first) image for the furniture item.
+        
+        Uses prefetched images to avoid N+1 queries.
+        
+        Args:
+            obj: FurnitureItem instance
+            
+        Returns:
+            str: Full URL to primary image, or None if no images
+        """
+        # Access prefetched images to avoid additional queries
+        images = obj.images.all() if hasattr(obj, 'images') else []
+        
+        if images:
+            # Get the first image (lowest order value)
+            primary = images[0]
+            if primary.image:
+                request = self.context.get('request')
+                if request is not None:
+                    return request.build_absolute_uri(primary.image.url)
+                return primary.image.url
+        
+        return None
+    
+    def get_listing_age(self, obj):
+        """
+        Calculate human-readable time since listing was created.
+        
+        Returns strings like "2 hours ago", "3 days ago", etc.
+        
+        Args:
+            obj: FurnitureItem instance
+            
+        Returns:
+            str: Human-readable time since creation
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        now = timezone.now()
+        delta = now - obj.created_at
+        
+        if delta < timedelta(minutes=1):
+            return "just now"
+        elif delta < timedelta(hours=1):
+            minutes = int(delta.total_seconds() / 60)
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        elif delta < timedelta(days=1):
+            hours = int(delta.total_seconds() / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif delta < timedelta(days=30):
+            days = delta.days
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        elif delta < timedelta(days=365):
+            months = int(delta.days / 30)
+            return f"{months} month{'s' if months != 1 else ''} ago"
+        else:
+            years = int(delta.days / 365)
+            return f"{years} year{'s' if years != 1 else ''} ago"

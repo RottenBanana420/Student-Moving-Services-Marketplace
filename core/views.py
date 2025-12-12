@@ -3128,105 +3128,183 @@ class UserRatingSummaryView(APIView):
 # Furniture Listing Creation View
 # ============================================================================
 
-class FurnitureListingCreateView(generics.CreateAPIView):
+class FurnitureListView(generics.ListCreateAPIView):
     """
-    API endpoint for creating furniture listings with multiple images.
+    API endpoint for browsing and creating furniture listings.
     
-    Security features:
-    - Requires JWT authentication (IsAuthenticated)
-    - Validates image count (1-10 images required)
-    - Validates image format (JPEG, PNG, WebP only)
-    - Validates image size (max 5MB per image)
-    - Automatically sets seller to authenticated user
-    - Uses atomic transactions for data consistency
+    GET /api/furniture/
+    - Public endpoint (no authentication required)
+    - Supports comprehensive filtering, search, sorting, and pagination
     
     POST /api/furniture/
-    Headers: 
-        Authorization: Bearer <access_token>
-        Content-Type: multipart/form-data
+    - Requires JWT authentication
+    - Create new listing with multiple images (multipart/form-data)
     
-    Request body (multipart/form-data):
-    {
-        "title": "Comfortable Sofa",
-        "description": "A very comfortable 3-seater sofa in excellent condition.",
-        "price": "150.00",
-        "condition": "good",  # Choices: new, like_new, good, fair, poor
-        "category": "furniture",  # Choices: furniture, appliances, electronics, books, clothing, other
-        "images": [<file1>, <file2>, <file3>]  # 1-10 image files
-    }
+    Query Parameters (GET):
+    - category: Filter by category
+    - condition: Filter by condition
+    - min_price: Filter by minimum price
+    - max_price: Filter by maximum price
+    - seller: Filter by seller ID
+    - university: Filter by seller's university name
+    - include_sold: Include sold items (default: false)
+    - search: Search in title and description
+    - ordering: Sort results
+    - page: Page number
     
-    Success response (201):
-    {
-        "id": 1,
-        "title": "Comfortable Sofa",
-        "description": "A very comfortable 3-seater sofa in excellent condition.",
-        "price": "150.00",
-        "condition": "good",
-        "category": "furniture",
-        "seller": {
-            "id": 1,
-            "email": "seller@example.com",
-            "university_name": "Example University"
-        },
-        "is_sold": false,
-        "created_at": "2025-12-12T10:00:00Z",
-        "updated_at": "2025-12-12T10:00:00Z",
-        "images": [
-            {
-                "id": 1,
-                "image": "http://example.com/media/furniture_images/1/img1.jpg",
-                "order": 0,
-                "uploaded_at": "2025-12-12T10:00:00Z"
-            },
-            {
-                "id": 2,
-                "image": "http://example.com/media/furniture_images/1/img2.png",
-                "order": 1,
-                "uploaded_at": "2025-12-12T10:00:00Z"
-            },
-            {
-                "id": 3,
-                "image": "http://example.com/media/furniture_images/1/img3.webp",
-                "order": 2,
-                "uploaded_at": "2025-12-12T10:00:00Z"
-            }
-        ]
-    }
-    
-    Error responses:
-    - 401: Missing, invalid, or expired JWT token
-    - 400: Validation errors (invalid data, missing fields, image validation failures)
-    
-    Validation errors:
-    - Title: Cannot be empty or whitespace-only
-    - Description: Cannot be empty or whitespace-only
-    - Price: Must be greater than 0
-    - Condition: Must be one of: new, like_new, good, fair, poor
-    - Category: Must be one of: furniture, appliances, electronics, books, clothing, other
-    - Images: 
-        - At least 1 image required
-        - Maximum 10 images allowed
-        - Each image max 5MB
-        - Allowed formats: JPEG, PNG, WebP
+    Request Body (POST):
+    - title: String
+    - description: String
+    - price: Decimal
+    - condition: String (choice)
+    - category: String (choice)
+    - images: List of files
     """
     
-    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     
-    def get_serializer_class(self):
-        """Return the serializer class for furniture listing creation."""
-        from core.serializers import FurnitureItemCreateSerializer
-        return FurnitureItemCreateSerializer
+    def get_permissions(self):
+        """
+        Get permissions based on request method.
+        GET: AllowAny (Public)
+        POST: IsAuthenticated (Protected)
+        """
+        if self.request.method == 'POST':
+            return [IsAuthenticated()]
+        return [AllowAny()]
     
+    def get_serializer_class(self):
+        """
+        Get serializer class based on request method.
+        GET: FurnitureBrowseSerializer
+        POST: FurnitureItemCreateSerializer
+        """
+        if self.request.method == 'POST':
+            from core.serializers import FurnitureItemCreateSerializer
+            return FurnitureItemCreateSerializer
+        from core.serializers import FurnitureBrowseSerializer
+        return FurnitureBrowseSerializer
+        
+    def get_paginator(self):
+        """
+        Get paginator with custom page size for list view.
+        """
+        if not hasattr(self, '_paginator'):
+            class FurniturePagination(PageNumberPagination):
+                page_size = 20
+                page_size_query_param = 'page_size'
+                max_page_size = 100
+            
+            self._paginator = FurniturePagination()
+        
+        return self._paginator
+
+    # ============================================================================
+    # List/Browse Logic (GET)
+    # ============================================================================
+    
+    def get_queryset(self):
+        """
+        Get optimized queryset with filtering, search, and sorting.
+        """
+        from core.models import FurnitureItem
+        from django.db.models import Q
+        
+        # Base queryset with optimizations
+        queryset = FurnitureItem.objects.select_related('seller').prefetch_related('images')
+        
+        # Filter by sold status (default: exclude sold items)
+        include_sold = self.request.query_params.get('include_sold', 'false').lower()
+        if include_sold not in ['true', '1', 'yes']:
+            queryset = queryset.filter(is_sold=False)
+        
+        # Filter by category
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        # Filter by condition
+        condition = self.request.query_params.get('condition')
+        if condition:
+            queryset = queryset.filter(condition=condition)
+        
+        # Filter by price range
+        min_price = self.request.query_params.get('min_price')
+        if min_price:
+            try:
+                queryset = queryset.filter(price__gte=float(min_price))
+            except (ValueError, TypeError):
+                pass
+        
+        max_price = self.request.query_params.get('max_price')
+        if max_price:
+            try:
+                queryset = queryset.filter(price__lte=float(max_price))
+            except (ValueError, TypeError):
+                pass
+        
+        # Filter by seller ID
+        seller = self.request.query_params.get('seller')
+        if seller:
+            try:
+                queryset = queryset.filter(seller_id=int(seller))
+            except (ValueError, TypeError):
+                pass
+        
+        # Filter by university
+        university = self.request.query_params.get('university')
+        if university:
+            queryset = queryset.filter(seller__university_name__iexact=university)
+        
+        # Search functionality
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+        
+        # Sorting
+        ordering = self.request.query_params.get('ordering', '-created_at')
+        valid_ordering_fields = ['price', '-price', 'created_at', '-created_at']
+        if ordering in valid_ordering_fields:
+            queryset = queryset.order_by(ordering)
+        else:
+            queryset = queryset.order_by('-created_at')
+        
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """Handle GET request for furniture listing."""
+        from django.core.paginator import InvalidPage
+        from rest_framework.exceptions import NotFound
+        
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True, context={'request': request})
+                return self.get_paginated_response(serializer.data)
+            
+            serializer = self.get_serializer(queryset, many=True, context={'request': request})
+            return Response(serializer.data)
+            
+        except (InvalidPage, NotFound):
+            return Response({'detail': 'Invalid page.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in furniture browsing: {str(e)}")
+            return Response(
+                {'detail': 'An error occurred while fetching furniture listings.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    # ============================================================================
+    # Creation Logic (POST)
+    # ============================================================================
+
     def create(self, request, *args, **kwargs):
         """
         Handle furniture listing creation with comprehensive error handling.
-        
-        Args:
-            request: HTTP request with multipart/form-data
-            
-        Returns:
-            Response: Created listing data (201) or validation errors (400)
         """
         serializer = self.get_serializer(data=request.data, context={'request': request})
         
@@ -3249,19 +3327,14 @@ class FurnitureListingCreateView(generics.CreateAPIView):
             )
             
         except serializers.ValidationError as e:
-            # Validation errors from serializer
             logger.warning(
                 f"Furniture listing creation failed - validation error. "
                 f"User: {request.user.email}, "
                 f"Errors: {e.detail}"
             )
-            return Response(
-                e.detail,
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
         
         except Exception as e:
-            # Unexpected errors
             logger.error(
                 f"Furniture listing creation failed - unexpected error. "
                 f"User: {request.user.email}, "
@@ -3274,18 +3347,7 @@ class FurnitureListingCreateView(generics.CreateAPIView):
             )
     
     def perform_create(self, serializer):
-        """
-        Save the created furniture listing.
-        
-        The serializer handles:
-        - Setting seller to authenticated user
-        - Creating FurnitureItem instance
-        - Creating FurnitureImage instances
-        - Atomic transaction for data consistency
-        
-        Args:
-            serializer: Validated serializer instance
-        """
+        """Save the created furniture listing."""
         serializer.save()
 
 

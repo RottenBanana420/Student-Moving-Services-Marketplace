@@ -40,10 +40,8 @@ from core.views import (
     ServiceReviewsView,
     UserReviewsView,
     UserRatingSummaryView,
-    FurnitureListingCreateView
+    FurnitureListView
 )
-
-
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -76,7 +74,7 @@ urlpatterns = [
     path('api/users/<int:user_id>/rating-summary/', UserRatingSummaryView.as_view(), name='user_rating_summary'),
 
     # Furniture endpoints
-    path('api/furniture/', FurnitureListingCreateView.as_view(), name='furniture_create'),
+    path('api/furniture/', FurnitureListView.as_view(), name='furniture_list'),  # GET for browsing, POST for creating
 
 
     
