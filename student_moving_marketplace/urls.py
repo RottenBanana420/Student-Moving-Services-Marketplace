@@ -39,7 +39,8 @@ from core.views import (
     ReviewUpdateDeleteView,
     ServiceReviewsView,
     UserReviewsView,
-    UserRatingSummaryView
+    UserRatingSummaryView,
+    FurnitureListingCreateView
 )
 
 
@@ -73,6 +74,9 @@ urlpatterns = [
     
     # Rating summary endpoint
     path('api/users/<int:user_id>/rating-summary/', UserRatingSummaryView.as_view(), name='user_rating_summary'),
+
+    # Furniture endpoints
+    path('api/furniture/', FurnitureListingCreateView.as_view(), name='furniture_create'),
 
 
     

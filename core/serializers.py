@@ -2170,3 +2170,331 @@ class UserReviewSerializer(serializers.ModelSerializer):
         if obj.booking and obj.booking.service:
             return obj.booking.service.service_name
         return None
+
+
+# ============================================================================
+# Furniture Listing Creation Serializers
+# ============================================================================
+
+class FurnitureImageSerializer(serializers.ModelSerializer):
+    """
+    Serializer for furniture images in listing responses.
+    
+    Provides image URL and ordering information.
+    
+    Fields:
+    - id: Image ID
+    - image: Full URL to image file
+    - order: Display order
+    - uploaded_at: Upload timestamp
+    """
+    
+    image = serializers.SerializerMethodField()
+    
+    class Meta:
+        from core.models import FurnitureImage
+        model = FurnitureImage
+        fields = ['id', 'image', 'order', 'uploaded_at']
+        read_only_fields = fields
+    
+    def get_image(self, obj):
+        """
+        Generate full URL for furniture image.
+        
+        Args:
+            obj: FurnitureImage instance
+            
+        Returns:
+            str: Full URL to image file
+        """
+        if obj.image:
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+
+class FurnitureSellerSerializer(serializers.ModelSerializer):
+    """
+    Serializer for seller information in furniture listings.
+    
+    Provides essential seller details without exposing sensitive information.
+    
+    Fields:
+    - id: Seller user ID
+    - email: Seller email address
+    - university_name: Seller's university
+    """
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'university_name']
+        read_only_fields = fields
+
+
+class FurnitureItemCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating furniture listings with multiple images.
+    
+    Security features:
+    - Requires JWT authentication (enforced by view)
+    - Validates image count (1-10 images required)
+    - Validates image format (JPEG, PNG, WebP only)
+    - Validates image size (max 5MB per image)
+    - Automatically sets seller to authenticated user
+    
+    Fields:
+    - title: Required, max 200 characters
+    - description: Required, detailed item information
+    - price: Required, must be positive decimal
+    - condition: Required, one of predefined choices
+    - category: Required, one of predefined choices
+    - images: Required, list of 1-10 image files
+    
+    Read-only fields (auto-populated):
+    - id: Auto-generated
+    - seller: Set from request.user
+    - is_sold: Defaults to False
+    - created_at: Auto-generated
+    - updated_at: Auto-generated
+    """
+    
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        required=True,
+        help_text='List of 1-10 image files (JPEG, PNG, WebP, max 5MB each)'
+    )
+    seller = FurnitureSellerSerializer(read_only=True)
+    images_data = FurnitureImageSerializer(source='images', many=True, read_only=True)
+    
+    class Meta:
+        from core.models import FurnitureItem
+        model = FurnitureItem
+        fields = [
+            'id',
+            'title',
+            'description',
+            'price',
+            'condition',
+            'category',
+            'images',
+            'images_data',
+            'seller',
+            'is_sold',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['id', 'seller', 'is_sold', 'created_at', 'updated_at', 'images_data']
+        extra_kwargs = {
+            'title': {'required': True},
+            'description': {'required': True},
+            'price': {'required': True},
+            'condition': {'required': True},
+            'category': {'required': True},
+        }
+    
+    def validate_title(self, value):
+        """
+        Validate title is not empty or whitespace-only.
+        
+        Args:
+            value: Title string
+            
+        Returns:
+            str: Validated title
+            
+        Raises:
+            ValidationError: If title is empty or whitespace
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Title cannot be empty."
+            )
+        
+        return value.strip()
+    
+    def validate_description(self, value):
+        """
+        Validate description is not empty or whitespace-only.
+        
+        Args:
+            value: Description string
+            
+        Returns:
+            str: Validated description
+            
+        Raises:
+            ValidationError: If description is empty or whitespace
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError(
+                "Description cannot be empty."
+            )
+        
+        return value.strip()
+    
+    def validate_price(self, value):
+        """
+        Validate price is positive (greater than 0).
+        
+        Args:
+            value: Price decimal
+            
+        Returns:
+            Decimal: Validated price
+            
+        Raises:
+            ValidationError: If price is not positive
+        """
+        from decimal import Decimal
+        
+        if value is None:
+            raise serializers.ValidationError(
+                "Price is required."
+            )
+        
+        if value <= Decimal('0.00'):
+            raise serializers.ValidationError(
+                "Price must be greater than 0."
+            )
+        
+        return value
+    
+    def validate_images(self, value):
+        """
+        Validate images list for count, format, and size.
+        
+        Validates:
+        - At least 1 image required
+        - Maximum 10 images allowed
+        - Each image must be valid format (JPEG, PNG, WebP)
+        - Each image must be under 5MB
+        
+        Args:
+            value: List of uploaded image files
+            
+        Returns:
+            list: Validated list of images
+            
+        Raises:
+            ValidationError: If validation fails
+        """
+        # Check image count
+        if not value or len(value) == 0:
+            raise serializers.ValidationError(
+                "At least one image is required."
+            )
+        
+        if len(value) > 10:
+            raise serializers.ValidationError(
+                "Maximum 10 images allowed per listing."
+            )
+        
+        # Validate each image
+        max_size = 5 * 1024 * 1024  # 5MB
+        valid_extensions = ['jpg', 'jpeg', 'png', 'webp']
+        valid_content_types = ['image/jpeg', 'image/png', 'image/webp']
+        
+        for i, image in enumerate(value):
+            # Check file size
+            if image.size > max_size:
+                raise serializers.ValidationError(
+                    f"Image {i+1} exceeds maximum size of 5MB. "
+                    f"Current size: {image.size / (1024 * 1024):.2f}MB"
+                )
+            
+            # Check file extension
+            file_name = image.name.lower()
+            if not any(file_name.endswith(f'.{ext}') for ext in valid_extensions):
+                raise serializers.ValidationError(
+                    f"Image {i+1} has invalid format. "
+                    f"Allowed formats: {', '.join(valid_extensions)}"
+                )
+            
+            # Check MIME type
+            if hasattr(image, 'content_type') and image.content_type:
+                if image.content_type not in valid_content_types:
+                    raise serializers.ValidationError(
+                        f"Image {i+1} has invalid content type: {image.content_type}. "
+                        f"Allowed types: {', '.join(valid_content_types)}"
+                    )
+        
+        return value
+    
+    def create(self, validated_data):
+        """
+        Create furniture item with images in atomic transaction.
+        
+        Steps:
+        1. Extract images from validated data
+        2. Get authenticated user as seller
+        3. Create FurnitureItem instance
+        4. Create FurnitureImage instances for each uploaded image
+        5. Return created item with images
+        
+        Args:
+            validated_data: Validated data from serializer
+            
+        Returns:
+            FurnitureItem: Created furniture item instance
+            
+        Raises:
+            ValidationError: If creation fails
+        """
+        from django.db import transaction
+        from core.models import FurnitureItem, FurnitureImage
+        
+        # Extract images from validated data
+        images = validated_data.pop('images')
+        
+        # Get authenticated user from context
+        request = self.context.get('request')
+        if not request or not request.user:
+            raise serializers.ValidationError(
+                "Authentication required to create listing."
+            )
+        
+        # Create furniture item in atomic transaction
+        with transaction.atomic():
+            # Create furniture item with seller set to authenticated user
+            furniture_item = FurnitureItem.objects.create(
+                seller=request.user,
+                **validated_data
+            )
+            
+            # Create furniture images with proper ordering
+            for order, image in enumerate(images):
+                FurnitureImage.objects.create(
+                    furniture_item=furniture_item,
+                    image=image,
+                    order=order
+                )
+        
+        return furniture_item
+    
+    def to_representation(self, instance):
+        """
+        Override to_representation to include images in response.
+        
+        Replaces 'images' write-only field with 'images_data' read-only field
+        containing full image information.
+        
+        Args:
+            instance: FurnitureItem instance
+            
+        Returns:
+            dict: Serialized data with images
+        """
+        data = super().to_representation(instance)
+        
+        # Remove write-only images field from response
+        data.pop('images', None)
+        
+        # Rename images_data to images for cleaner API
+        if 'images_data' in data:
+            data['images'] = data.pop('images_data')
+        
+        return data
+

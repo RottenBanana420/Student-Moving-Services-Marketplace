@@ -6,13 +6,14 @@ import logging
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
-from rest_framework import generics, status
+from rest_framework import generics, status, serializers
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import IntegrityError
 from django.contrib.auth import get_user_model
 from .serializers import (
@@ -3121,4 +3122,170 @@ class UserRatingSummaryView(APIView):
             return 'declining'
         else:
             return 'stable'
+
+
+# ============================================================================
+# Furniture Listing Creation View
+# ============================================================================
+
+class FurnitureListingCreateView(generics.CreateAPIView):
+    """
+    API endpoint for creating furniture listings with multiple images.
+    
+    Security features:
+    - Requires JWT authentication (IsAuthenticated)
+    - Validates image count (1-10 images required)
+    - Validates image format (JPEG, PNG, WebP only)
+    - Validates image size (max 5MB per image)
+    - Automatically sets seller to authenticated user
+    - Uses atomic transactions for data consistency
+    
+    POST /api/furniture/
+    Headers: 
+        Authorization: Bearer <access_token>
+        Content-Type: multipart/form-data
+    
+    Request body (multipart/form-data):
+    {
+        "title": "Comfortable Sofa",
+        "description": "A very comfortable 3-seater sofa in excellent condition.",
+        "price": "150.00",
+        "condition": "good",  # Choices: new, like_new, good, fair, poor
+        "category": "furniture",  # Choices: furniture, appliances, electronics, books, clothing, other
+        "images": [<file1>, <file2>, <file3>]  # 1-10 image files
+    }
+    
+    Success response (201):
+    {
+        "id": 1,
+        "title": "Comfortable Sofa",
+        "description": "A very comfortable 3-seater sofa in excellent condition.",
+        "price": "150.00",
+        "condition": "good",
+        "category": "furniture",
+        "seller": {
+            "id": 1,
+            "email": "seller@example.com",
+            "university_name": "Example University"
+        },
+        "is_sold": false,
+        "created_at": "2025-12-12T10:00:00Z",
+        "updated_at": "2025-12-12T10:00:00Z",
+        "images": [
+            {
+                "id": 1,
+                "image": "http://example.com/media/furniture_images/1/img1.jpg",
+                "order": 0,
+                "uploaded_at": "2025-12-12T10:00:00Z"
+            },
+            {
+                "id": 2,
+                "image": "http://example.com/media/furniture_images/1/img2.png",
+                "order": 1,
+                "uploaded_at": "2025-12-12T10:00:00Z"
+            },
+            {
+                "id": 3,
+                "image": "http://example.com/media/furniture_images/1/img3.webp",
+                "order": 2,
+                "uploaded_at": "2025-12-12T10:00:00Z"
+            }
+        ]
+    }
+    
+    Error responses:
+    - 401: Missing, invalid, or expired JWT token
+    - 400: Validation errors (invalid data, missing fields, image validation failures)
+    
+    Validation errors:
+    - Title: Cannot be empty or whitespace-only
+    - Description: Cannot be empty or whitespace-only
+    - Price: Must be greater than 0
+    - Condition: Must be one of: new, like_new, good, fair, poor
+    - Category: Must be one of: furniture, appliances, electronics, books, clothing, other
+    - Images: 
+        - At least 1 image required
+        - Maximum 10 images allowed
+        - Each image max 5MB
+        - Allowed formats: JPEG, PNG, WebP
+    """
+    
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get_serializer_class(self):
+        """Return the serializer class for furniture listing creation."""
+        from core.serializers import FurnitureItemCreateSerializer
+        return FurnitureItemCreateSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Handle furniture listing creation with comprehensive error handling.
+        
+        Args:
+            request: HTTP request with multipart/form-data
+            
+        Returns:
+            Response: Created listing data (201) or validation errors (400)
+        """
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            
+            logger.info(
+                f"Furniture listing created successfully. "
+                f"Seller: {request.user.email}, "
+                f"Title: {serializer.data.get('title')}, "
+                f"ID: {serializer.data.get('id')}"
+            )
+            
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+                headers=headers
+            )
+            
+        except serializers.ValidationError as e:
+            # Validation errors from serializer
+            logger.warning(
+                f"Furniture listing creation failed - validation error. "
+                f"User: {request.user.email}, "
+                f"Errors: {e.detail}"
+            )
+            return Response(
+                e.detail,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        except Exception as e:
+            # Unexpected errors
+            logger.error(
+                f"Furniture listing creation failed - unexpected error. "
+                f"User: {request.user.email}, "
+                f"Error: {str(e)}",
+                exc_info=True
+            )
+            return Response(
+                {'detail': 'An error occurred while creating the listing.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def perform_create(self, serializer):
+        """
+        Save the created furniture listing.
+        
+        The serializer handles:
+        - Setting seller to authenticated user
+        - Creating FurnitureItem instance
+        - Creating FurnitureImage instances
+        - Atomic transaction for data consistency
+        
+        Args:
+            serializer: Validated serializer instance
+        """
+        serializer.save()
+
 
