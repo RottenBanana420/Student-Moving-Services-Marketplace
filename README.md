@@ -436,6 +436,13 @@ Complete system for buying and selling furniture:
 | GET | `/api/reviews/user/<id>/` | List reviews for a user | No |
 | GET | `/api/users/<id>/rating-summary/` | Get detailed user rating stats | No |
 
+### Furniture Marketplace
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/furniture/` | Browse furniture (filter, sort, search) | No |
+| POST | `/api/furniture/` | List new furniture for sale | Yes |
+
 *Note: Login and Refresh endpoints are rate-limited to prevent abuse.*
 
 ## 🔧 Configuration
@@ -571,7 +578,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 
 ## 🔄 Project Status
 
-**Current Version**: 2.5.0 (Booking System Beta)
+**Current Version**: 2.6.0 (Furniture Marketplace Beta)
 
 - ✅ Environment setup complete
 - ✅ MySQL database configured
@@ -591,6 +598,7 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 - ✅ Booking Management (List, Update, Calendar)
 - ✅ Review System API implementation (Create, Update, Delete, Summary)
 - ✅ Bidirectional Ratings (Provider & Student stats)
+- ✅ Furniture Marketplace API (Browse, Filter, Create)
 - 🚧 Frontend interface
 
 ## 🎯 Next Steps
@@ -602,9 +610,10 @@ For issues, questions, or contributions, please open an issue on the GitHub repo
 5. ✅ ~~Implement booking creation~~ (Complete)
 6. ✅ ~~Implement Booking Management endpoints (List/Update/Cancel)~~ (Complete)
 7. ✅ ~~Implement Review System endpoints~~ (Complete)
-8. Build frontend interface
-9. Add payment integration
-10. Deploy to production
+8. ✅ ~~Implement Furniture Marketplace endpoints~~ (Complete)
+9. Build frontend interface
+10. Add payment integration
+11. Deploy to production
 
 ---
 
